@@ -1,16 +1,41 @@
-## Hi there 👋
+# Hi, I'm Doskater
 
-<!--
-**Doskater/Doskater** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+I'm building a freelance portfolio focused on AI workflows, web automation, and small business process automation.
 
-Here are some ideas to get you started:
+## What I build
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
+- Lead capture workflows
+- CSV / Excel business reports
+- AI-assisted email reply drafts
+- Website monitoring tools
+- Browser automation with Playwright
+
+## Portfolio projects
+
+### Lead Capture Automation
+A Flask app that captures business leads, saves them to CSV, assigns priority, and generates follow-up drafts.  
+https://github.com/Doskater/lead-capture-automation
+
+### CSV / Excel Report Generator
+A Python automation project that cleans messy sales CSV data and generates an Excel business report.  
+https://github.com/Doskater/csv-excel-report-generator
+
+### AI Email Reply Assistant
+A Python project that classifies customer emails, assigns priority, and generates professional reply drafts.  
+https://github.com/Doskater/ai-email-reply-assistant
+
+### Website Monitor
+A Python tool that monitors local website pages and reports content changes.  
+https://github.com/Doskater/website-monitor
+
+### Form Auto-Filler with Playwright
+A Python Playwright project that automates filling and submitting a local lead form.  
+https://github.com/Doskater/form-autofiller-playwright
+
+## Tech stack
+
+Python, Flask, pandas, openpyxl, BeautifulSoup, Playwright, HTML/CSS, CSV/Excel automation.
+
+## Freelance focus
+
+I help small businesses automate repetitive workflows, process data, monitor websites, and build small internal tools.

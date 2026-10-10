@@ -193,6 +193,7 @@ async function forward(req, res) {
   }
 
   let body;
+  let isInitializeRequest = false;
 
   if (!["GET", "HEAD", "DELETE"].includes(req.method)) {
     try {
@@ -206,6 +207,10 @@ async function forward(req, res) {
     if (body.length) {
       try {
         const parsed = JSON.parse(body.toString("utf8"));
+        const messages = Array.isArray(parsed) ? parsed : [parsed];
+        isInitializeRequest = messages.some(
+          item => item && typeof item === "object" && item.method === "initialize"
+        );
         const violation = validateRpc(parsed);
 
         if (violation) {
@@ -237,6 +242,11 @@ async function forward(req, res) {
     "mcp-session-id",
     "last-event-id"
   ]) {
+    // The modern MCP protocol header applies after initialization. Some clients
+    // optimistically send it on initialize; forwarding it causes strict upstream
+    // servers to reject the legacy initialize handshake as a header/body mismatch.
+    if (name === "mcp-protocol-version" && isInitializeRequest) continue;
+
     const value = req.headers[name];
     if (typeof value === "string") headers[name] = value;
   }

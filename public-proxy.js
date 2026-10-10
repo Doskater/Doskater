@@ -154,6 +154,174 @@ function filterResponseText(text, contentType) {
   return redact(text);
 }
 
+const MODERN_PROTOCOL = "2026-07-28";
+const LEGACY_PROTOCOL = "2025-11-25";
+const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
+const CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities";
+const SERVER_INFO_META_KEY = "io.modelcontextprotocol/serverInfo";
+const SERVER_INFO = { name: "trading-data-mcp", version: "1.0.0" };
+
+function stripModernParams(params) {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return params;
+  const clean = { ...params };
+  delete clean._meta;
+  delete clean.inputResponses;
+  delete clean.requestState;
+  return clean;
+}
+
+function isModernRpc(req, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value.method === "initialize") return false;
+  const headerVersion = req.headers["mcp-protocol-version"];
+  const metaVersion = value.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+  return value.method === "server/discover" ||
+    headerVersion === MODERN_PROTOCOL ||
+    metaVersion === MODERN_PROTOCOL;
+}
+
+function modernEnvelope(result) {
+  return {
+    ...result,
+    resultType: "complete",
+    _meta: {
+      ...(result?._meta || {}),
+      [SERVER_INFO_META_KEY]: SERVER_INFO
+    }
+  };
+}
+
+function sendModernResult(res, id, result) {
+  res.writeHead(200, {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+    "mcp-protocol-version": MODERN_PROTOCOL,
+    "access-control-allow-origin": "*",
+    "access-control-expose-headers": "MCP-Protocol-Version"
+  });
+  res.end(JSON.stringify({ jsonrpc: "2.0", id: id ?? null, result: modernEnvelope(result) }));
+}
+
+function sendRpcError(res, id, code, message, status = 200) {
+  res.writeHead(status, {
+    "content-type": "application/json",
+    "cache-control": "no-store",
+    "access-control-allow-origin": "*"
+  });
+  res.end(jsonRpcError(id, code, message));
+}
+
+function parseUpstreamRpc(text, contentType) {
+  if (contentType.includes("application/json")) return JSON.parse(text);
+  if (contentType.includes("text/event-stream")) {
+    for (const line of text.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      const raw = line.slice(5).trim();
+      if (raw) return JSON.parse(raw);
+    }
+  }
+  throw new Error("unsupported_upstream_response");
+}
+
+async function callLegacyRpc(message) {
+  const legacyMessage = {
+    ...message,
+    params: stripModernParams(message.params)
+  };
+
+  const upstream = await fetch(UPSTREAM, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${TOKEN}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": LEGACY_PROTOCOL,
+      "user-agent": "Trading-Data-ChatGPT-ReadOnly-Proxy/1.1"
+    },
+    body: JSON.stringify(legacyMessage)
+  });
+
+  const contentType = upstream.headers.get("content-type") || "";
+  const text = await upstream.text();
+  let payload;
+  try {
+    payload = parseUpstreamRpc(text, contentType);
+  } catch {
+    throw new Error(`upstream_protocol_error_${upstream.status}`);
+  }
+  return { upstream, payload };
+}
+
+async function handleModernRpc(req, res, message) {
+  if (Array.isArray(message)) {
+    sendRpcError(res, null, -32600, "JSON-RPC batching is not supported", 400);
+    return;
+  }
+
+  const method = message?.method;
+  const id = message?.id;
+
+  if (method === "server/discover") {
+    sendModernResult(res, id, {
+      supportedVersions: [MODERN_PROTOCOL],
+      capabilities: { tools: {} },
+      ttlMs: 0,
+      cacheScope: "private"
+    });
+    return;
+  }
+
+  if (method !== "tools/list" && method !== "tools/call") {
+    sendRpcError(res, id, -32601, `Method not found: ${String(method)}`);
+    return;
+  }
+
+  if (method === "tools/call") {
+    const tool = message.params?.name;
+    if (!ALLOWED_TOOLS.has(tool)) {
+      sendRpcError(res, id, -32602, `Tool is not exposed by this read-only proxy: ${String(tool)}`);
+      return;
+    }
+  }
+
+  try {
+    const { upstream, payload } = await callLegacyRpc(message);
+    if (payload?.error) {
+      sendRpcError(
+        res,
+        id,
+        payload.error.code ?? -32603,
+        payload.error.message || `Upstream error (${upstream.status})`,
+        upstream.ok ? 200 : upstream.status
+      );
+      return;
+    }
+
+    if (!payload?.result) {
+      sendRpcError(res, id, -32603, "Upstream returned no MCP result", 502);
+      return;
+    }
+
+    if (method === "tools/list") {
+      const tools = Array.isArray(payload.result.tools)
+        ? payload.result.tools.filter(tool => ALLOWED_TOOLS.has(tool?.name))
+        : [];
+      sendModernResult(res, id, {
+        tools,
+        ttlMs: 0,
+        cacheScope: "private"
+      });
+      return;
+    }
+
+    const result = { ...payload.result };
+    if (!Array.isArray(result.content)) result.content = [];
+    sendModernResult(res, id, result);
+  } catch {
+    sendRpcError(res, id, -32603, "Upstream MCP request failed", 502);
+  }
+}
+
 function copyResponseHeaders(upstream, res) {
   const allowed = [
     "content-type",
@@ -193,6 +361,7 @@ async function forward(req, res) {
   }
 
   let body;
+  let parsedBody = null;
   let isInitializeRequest = false;
 
   if (!["GET", "HEAD", "DELETE"].includes(req.method)) {
@@ -207,6 +376,7 @@ async function forward(req, res) {
     if (body.length) {
       try {
         const parsed = JSON.parse(body.toString("utf8"));
+        parsedBody = parsed;
         const messages = Array.isArray(parsed) ? parsed : [parsed];
         isInitializeRequest = messages.some(
           item => item && typeof item === "object" && item.method === "initialize"
@@ -226,6 +396,11 @@ async function forward(req, res) {
         // Let upstream return the protocol-level parse error.
       }
     }
+  }
+
+  if (parsedBody && isModernRpc(req, parsedBody)) {
+    await handleModernRpc(req, res, parsedBody);
+    return;
   }
 
   const headers = {
@@ -295,7 +470,7 @@ const server = http.createServer(async (req, res) => {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
       "access-control-allow-headers":
-        "Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id, Last-Event-ID"
+        "Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Mcp-Session-Id, Last-Event-ID"
     });
     res.end();
     return;

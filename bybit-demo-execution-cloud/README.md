@@ -34,3 +34,7 @@ npm start
 ## MCP
 
 The MCP endpoint is `POST /mcp`. Read tools cover account, positions, open orders, order history, and executions. Write tools cover demo-only order placement/amend/cancel, full-position close, leverage, and server-side TP/SL protection.
+
+## Service access control
+
+The public `/mcp` route is fail-closed and requires an internal bearer token in `MCP_ACCESS_TOKEN`. This token is generated and managed during deployment; the user does not need to copy it. `/healthz` remains public and never exposes token or Bybit credential values.

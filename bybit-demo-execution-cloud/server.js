@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { BYBIT_DEMO_HOST, createBybitClient } from './bybit-client.js';
 import { createBybitService } from './bybit-service.js';
@@ -74,6 +75,23 @@ const TOOL_DISPATCH = {
 
 function credentialsConfigured(env) {
   return Boolean(env.BYBIT_DEMO_API_KEY && env.BYBIT_DEMO_API_SECRET);
+}
+
+function accessTokenConfigured(env) {
+  return Boolean(env.MCP_ACCESS_TOKEN);
+}
+
+function hasValidBearer(req, env) {
+  const expected = env.MCP_ACCESS_TOKEN;
+  if (!expected) return false;
+  const header = req.headers.authorization;
+  if (typeof header !== 'string') return false;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  if (!match) return false;
+  const actual = Buffer.from(match[1], 'utf8');
+  const wanted = Buffer.from(String(expected), 'utf8');
+  if (actual.length !== wanted.length) return false;
+  return timingSafeEqual(actual, wanted);
 }
 
 function sendJson(res, status, body, extraHeaders = {}) {
@@ -157,6 +175,14 @@ export function createHttpServer({
   async function handleMcp(req, res) {
     if (req.method !== 'POST') {
       sendJson(res, 405, { error: 'method_not_allowed' });
+      return;
+    }
+    if (!accessTokenConfigured(env)) {
+      sendJson(res, 503, { error: 'service_auth_not_configured' });
+      return;
+    }
+    if (!hasValidBearer(req, env)) {
+      sendJson(res, 401, { error: 'unauthorized' }, { 'www-authenticate': 'Bearer' });
       return;
     }
     if (!withinRateLimit(req)) {
@@ -253,7 +279,7 @@ export function createHttpServer({
       res.writeHead(204, {
         'access-control-allow-origin': '*',
         'access-control-allow-methods': 'GET,POST,OPTIONS',
-        'access-control-allow-headers': 'Content-Type, Accept, MCP-Protocol-Version'
+        'access-control-allow-headers': 'Content-Type, Accept, Authorization, MCP-Protocol-Version'
       });
       res.end();
       return;

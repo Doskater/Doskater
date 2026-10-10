@@ -15,10 +15,12 @@ async function withServer(options, fn) {
   finally { await new Promise(resolve => server.close(resolve)); }
 }
 
-async function rpc(base, message) {
+async function rpc(base, message, accessToken = 'test-access-token') {
+  const headers = { 'content-type': 'application/json', 'mcp-protocol-version': '2026-07-28' };
+  if (accessToken) headers.authorization = `Bearer ${accessToken}`;
   const response = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'mcp-protocol-version': '2026-07-28' },
+    headers,
     body: JSON.stringify(message)
   });
   const text = await response.text();
@@ -26,7 +28,7 @@ async function rpc(base, message) {
 }
 
 test('health works without secrets and reveals only configured state', async () => {
-  await withServer({ env: {} }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' } }, async base => {
     const response = await fetch(`${base}/healthz`);
     assert.equal(response.status, 200);
     const body = await response.json();
@@ -37,7 +39,7 @@ test('health works without secrets and reveals only configured state', async () 
 });
 
 test('supports initialize and modern server discovery without secrets', async () => {
-  await withServer({ env: {} }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' } }, async base => {
     const init = await rpc(base, { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2026-07-28', capabilities: {}, clientInfo: { name: 'test', version: '1' } } });
     assert.equal(init.response.status, 200);
     assert.equal(init.json.result.protocolVersion, '2026-07-28');
@@ -49,7 +51,7 @@ test('supports initialize and modern server discovery without secrets', async ()
 });
 
 test('tools/list exposes only intended demo tools and clearly marks writes', async () => {
-  await withServer({ env: {} }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' } }, async base => {
     const result = await rpc(base, { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
     const tools = result.json.result.tools;
     const names = tools.map(t => t.name);
@@ -71,7 +73,7 @@ test('tools/call routes read and write calls to the injected service', async () 
     getPositions: async args => { calls.push(['getPositions', args]); return [{ symbol: 'BTCUSDT' }]; },
     placeOrder: async args => { calls.push(['placeOrder', args]); return { orderId: 'demo1' }; }
   };
-  await withServer({ env: {}, service }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' }, service }, async base => {
     const read = await rpc(base, { jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'get_positions', arguments: { symbol: 'BTCUSDT' } } });
     assert.deepEqual(read.json.result.structuredContent, [{ symbol: 'BTCUSDT' }]);
     const write = await rpc(base, { jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'place_order', arguments: { symbol: 'BTCUSDT', side: 'Buy', qty: '0.001', orderType: 'Market' } } });
@@ -84,7 +86,7 @@ test('tools/call routes read and write calls to the injected service', async () 
 });
 
 test('authenticated tool calls fail safely when secrets are missing', async () => {
-  await withServer({ env: {} }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' } }, async base => {
     const result = await rpc(base, { jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'get_account_snapshot', arguments: {} } });
     assert.equal(result.json.error.code, -32001);
     assert.match(result.json.error.message, /credentials are not configured/i);
@@ -94,7 +96,7 @@ test('authenticated tool calls fail safely when secrets are missing', async () =
 test('unknown tools are rejected and never dispatched', async () => {
   let called = false;
   const service = new Proxy({}, { get() { called = true; return async () => ({}); } });
-  await withServer({ env: {}, service }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' }, service }, async base => {
     const result = await rpc(base, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'withdraw', arguments: {} } });
     assert.equal(result.json.error.code, -32602);
     assert.match(result.json.error.message, /Unknown tool/);
@@ -103,17 +105,45 @@ test('unknown tools are rejected and never dispatched', async () => {
 });
 
 test('rejects oversized JSON bodies before parsing', async () => {
-  await withServer({ env: {}, maxBodyBytes: 64 }, async base => {
-    const response = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ value: 'x'.repeat(200) }) });
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' }, maxBodyBytes: 64 }, async base => {
+    const response = await fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer test-access-token' }, body: JSON.stringify({ value: 'x'.repeat(200) }) });
     assert.equal(response.status, 413);
   });
 });
 
 test('rate limits MCP requests per client', async () => {
-  await withServer({ env: {}, rateLimitMax: 1, rateLimitWindowMs: 60000 }, async base => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' }, rateLimitMax: 1, rateLimitWindowMs: 60000 }, async base => {
     const first = await rpc(base, { jsonrpc: '2.0', id: 8, method: 'tools/list', params: {} });
     assert.equal(first.response.status, 200);
     const second = await rpc(base, { jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} });
     assert.equal(second.response.status, 429);
+  });
+});
+
+
+test('MCP endpoint requires the configured bearer token while health remains public', async () => {
+  await withServer({ env: { MCP_ACCESS_TOKEN: 'test-access-token' } }, async base => {
+    const health = await fetch(`${base}/healthz`);
+    assert.equal(health.status, 200);
+
+    const missing = await rpc(base, { jsonrpc: '2.0', id: 10, method: 'tools/list', params: {} }, null);
+    assert.equal(missing.response.status, 401);
+    assert.equal(missing.json.error, 'unauthorized');
+
+    const wrong = await rpc(base, { jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} }, 'wrong-token');
+    assert.equal(wrong.response.status, 401);
+    assert.equal(wrong.json.error, 'unauthorized');
+
+    const good = await rpc(base, { jsonrpc: '2.0', id: 12, method: 'tools/list', params: {} });
+    assert.equal(good.response.status, 200);
+    assert.ok(Array.isArray(good.json.result.tools));
+  });
+});
+
+test('MCP fails closed when access token is not configured', async () => {
+  await withServer({ env: {} }, async base => {
+    const result = await rpc(base, { jsonrpc: '2.0', id: 13, method: 'tools/list', params: {} }, null);
+    assert.equal(result.response.status, 503);
+    assert.equal(result.json.error, 'service_auth_not_configured');
   });
 });

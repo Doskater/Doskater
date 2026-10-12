@@ -61,8 +61,22 @@ export function createCollector({ binanceFeed, bybitFeed, watchlist, clock = Dat
     const family = familyKey(event.venue, event.market);
     const symbol = normalizeSymbol(event.symbol);
     const ts = Number(event.ts ?? now());
-    coverageState.set(dataKey(family, symbol), { state: event.state, ts, book: event.book });
-    if (event.state !== 'healthy' || !event.book?.healthy) return;
+    const key = dataKey(family, symbol);
+    const previous = coverageState.get(key);
+    const isHealthy = event.state === 'healthy' && Boolean(event.book?.healthy);
+    const wasHealthy = previous?.state === 'healthy' && Boolean(previous?.book?.healthy);
+    const healthySince = isHealthy ? (wasHealthy ? (previous.healthySince ?? previous.ts) : ts) : null;
+    coverageState.set(key, { state: event.state, ts, book: event.book, healthySince });
+    const clearFamilyHistory = () => {
+      tradeBuffers.delete(key);
+      bookBuffers.delete(key);
+      midBuffers.delete(key);
+    };
+    if (event.state !== 'healthy' || !event.book?.healthy) {
+      clearFamilyHistory();
+      return;
+    }
+    if (previous && (previous.state !== 'healthy' || !previous.book?.healthy)) clearFamilyHistory();
     const depth = depthFromBook(event.book);
     if (!depth) return;
     bufferFor(bookBuffers, dataKey(family, symbol), 10_000).push({
@@ -138,16 +152,19 @@ export function createCollector({ binanceFeed, bybitFeed, watchlist, clock = Dat
       const state = coverageState.get(dataKey(family, symbol));
       const ageMs = state ? Math.max(0, current - state.ts) : null;
       const healthy = Boolean(state?.state === 'healthy' && state?.book?.healthy && ageMs <= FRESHNESS_MS);
-      return { family, state: state?.state ?? 'unknown', healthy, ageMs, reason: state?.book?.reason ?? null };
+      const healthyForMs = healthy && Number.isFinite(state?.healthySince) ? Math.max(0, current - state.healthySince) : 0;
+      return { family, state: state?.state ?? 'unknown', healthy, ageMs, healthyForMs, reason: state?.book?.reason ?? null };
     });
   }
 
   function historyWarm(family, symbol) {
-    const buffer = bookBuffers.get(dataKey(family, symbol));
+    const key = dataKey(family, symbol);
+    const state = coverageState.get(key);
+    if (!state || state.state !== 'healthy' || !state.book?.healthy || !Number.isFinite(state.healthySince)) return false;
+    if (now() - state.healthySince < 60_000) return false;
+    const buffer = bookBuffers.get(key);
     if (!buffer) return false;
-    const points = buffer.since(now() - 60_000);
-    if (points.length < 2) return false;
-    return points.at(-1).ts - points[0].ts >= 60_000;
+    return buffer.size() >= 2;
   }
 
   function runtimeFor(symbol, coverage) {

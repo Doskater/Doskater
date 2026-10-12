@@ -108,3 +108,27 @@ test('allows collector to attach handlers after feed construction', async () => 
   FakeSocket.instances.find(x => x.url.includes('stream.binance')).message({ e:'aggTrade', E:2, T:1, s:'BTCUSDT', p:'100', q:'1', m:false });
   await flush(); assert.equal(trades.length, 1); feed.stop();
 });
+
+test('USD-M first bridge event ignores pu until snapshot sequence is bridged, then enforces pu continuity', async () => {
+  FakeSocket.instances = [];
+  const states = [];
+  const feed = createBinanceFeed({
+    WebSocketImpl: FakeSocket,
+    fetchImpl: async url => jsonResponse({ lastUpdateId: 100, bids:[['100','2']], asks:[['101','2']] }),
+    onBookState: x => states.push(x)
+  });
+  feed.start(); for (const s of FakeSocket.instances) s.open(); await feed.ensureSymbol('BTCUSDT');
+  const perp = FakeSocket.instances.find(x => x.url.includes('fstream'));
+  perp.message({ e:'depthUpdate', E:101, s:'BTCUSDT', U:95, u:105, pu:94, b:[['100','3']], a:[] });
+  await flush();
+  let latest = states.filter(x => x.market === 'perp').at(-1);
+  assert.equal(latest.state, 'healthy');
+  assert.equal(latest.book.sequence, 105);
+  assert.equal(latest.book.bids[0][1], 3);
+  perp.message({ e:'depthUpdate', E:102, s:'BTCUSDT', U:108, u:110, pu:105, b:[['100','4']], a:[] });
+  await flush();
+  latest = states.filter(x => x.market === 'perp').at(-1);
+  assert.equal(latest.state, 'healthy');
+  assert.equal(latest.book.sequence, 110);
+  feed.stop();
+});

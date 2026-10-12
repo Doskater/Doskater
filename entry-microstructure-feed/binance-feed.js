@@ -46,7 +46,8 @@ export function createBinanceFeed({
         book: createOrderBook({ venue: 'binance', market: family, symbol, maxLevels: 1000 }),
         loading: false,
         buffered: [],
-        rebuildPromise: null
+        rebuildPromise: null,
+        needsBridge: false
       });
     }
     return books.get(k);
@@ -133,15 +134,15 @@ export function createBinanceFeed({
           eventTs: Number(snapshot.E ?? snapshot.T ?? now()),
           receiveTs: now()
         });
+        state.needsBridge = true;
         const buffered = state.buffered.sort((a, b) => (a.finalUpdateId ?? a.sequence ?? 0) - (b.finalUpdateId ?? b.sequence ?? 0));
         state.buffered = [];
         for (const delta of buffered) {
-          if (delta.finalUpdateId !== undefined && delta.finalUpdateId <= state.book.health().sequence) continue;
-          const applied = state.book.apply(delta);
+          const applied = applyDepthEvent(family, state, delta);
           if (!applied.ok) throw new Error(applied.reason || 'buffered_depth_invalid');
         }
         state.loading = false;
-        emitBook(family, symbol, state.book.health().valid ? 'healthy' : 'WARMING_UP');
+        emitBook(family, symbol, state.book.health().valid && !state.needsBridge ? 'healthy' : 'WARMING_UP');
       } catch (error) {
         state.loading = false;
         state.book.invalidate(error?.message || 'snapshot_rebuild_failed');
@@ -152,6 +153,30 @@ export function createBinanceFeed({
       }
     })();
     return state.rebuildPromise;
+  }
+
+  function applyDepthEvent(family, state, delta) {
+    const sequence = state.book.health().sequence;
+    if (state.needsBridge && sequence !== null && delta.finalUpdateId !== undefined) {
+      if (delta.finalUpdateId < sequence) return { ok: true, stale: true };
+      const target = family === 'perp' ? sequence : sequence + 1;
+      if (delta.finalUpdateId < target) return { ok: true, stale: true };
+      if (delta.firstUpdateId !== undefined && delta.firstUpdateId > target) {
+        return { ok: false, reason: 'sequence_gap_bridge' };
+      }
+      state.needsBridge = false;
+      if (delta.finalUpdateId === sequence) return { ok: true, stale: true };
+      const bridge = { ...delta };
+      delete bridge.previousFinalUpdateId;
+      return state.book.apply(bridge);
+    }
+    if (family === 'perp') {
+      if (sequence !== null && delta.finalUpdateId !== undefined && delta.finalUpdateId <= sequence) return { ok: true, stale: true };
+      const continuation = { ...delta };
+      delete continuation.firstUpdateId;
+      return state.book.apply(continuation);
+    }
+    return state.book.apply(delta);
   }
 
   function parseDepth(family, message) {
@@ -189,7 +214,7 @@ export function createBinanceFeed({
         state.buffered.push(delta);
         return;
       }
-      const result = state.book.apply(delta);
+      const result = applyDepthEvent(family, state, delta);
       if (!result.ok) {
         emitBook(family, symbol, 'WARMING_UP');
         void rebuildBook(family, symbol);

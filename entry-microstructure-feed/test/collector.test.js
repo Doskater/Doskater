@@ -92,6 +92,7 @@ test('dynamic ensure subscribes feeds, warms, then expiry unsubscribes', async (
 test('snapshot exposes causal microstructure fields without inventing missing features', async () => {
   const now={value:0}; const ctx=setup(now); await ctx.collector.start();
   emitAllHealthy(ctx,'BTCUSDT',0,100);
+  now.value=2_000; emitAllHealthy(ctx,'BTCUSDT',2_000,100.1);
   now.value=60_000; emitAllHealthy(ctx,'BTCUSDT',60_000,101);
   ctx.binance.liq('BTCUSDT','short',50000,59_000,100.8);
   const snap=ctx.collector.getSnapshot('BTCUSDT');
@@ -100,5 +101,34 @@ test('snapshot exposes causal microstructure fields without inventing missing fe
   assert.ok(snap.causalSummary);
   assert.equal(typeof snap.strongestContradiction,'string');
   assert.ok(snap.freshness);
+  ctx.collector.stop();
+});
+
+test('book invalidation clears that family rolling history and requires a fresh 60s warm-up after reconnect', async () => {
+  const now={value:0}; const ctx=setup(now); await ctx.collector.start();
+  emitAllHealthy(ctx,'BTCUSDT',0,100);
+  now.value=2_000; emitAllHealthy(ctx,'BTCUSDT',2_000,100.1);
+  now.value=60_000; emitAllHealthy(ctx,'BTCUSDT',60_000,101);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').runtime,'FULL_EVENT_STREAM');
+
+  now.value=61_000;
+  ctx.binance.book('spot','BTCUSDT','WARMING_UP',book(101,false),61_000);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').runtime,'PARTIAL');
+
+  now.value=62_000;
+  emitAllHealthy(ctx,'BTCUSDT',62_000,101.1);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').runtime,'WARMING_UP');
+
+  now.value=122_000;
+  emitAllHealthy(ctx,'BTCUSDT',122_000,102);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').runtime,'FULL_EVENT_STREAM');
+  ctx.collector.stop();
+});
+
+test('FULL_EVENT_STREAM uses continuous healthy duration, not an exact 60s span inside a sliding window', async () => {
+  const now={value:0}; const ctx=setup(now); await ctx.collector.start();
+  now.value=1_800; emitAllHealthy(ctx,'ETHUSDT',1_800,100);
+  now.value=61_900; emitAllHealthy(ctx,'ETHUSDT',61_900,101);
+  assert.equal(ctx.collector.getSnapshot('ETHUSDT').runtime,'FULL_EVENT_STREAM');
   ctx.collector.stop();
 });

@@ -118,9 +118,10 @@ export function createCollector({ binanceFeed, bybitFeed, watchlist, clock = Dat
   }
 
   async function ensureSymbols(values) {
-    const normalized = values.map(normalizeSymbol);
+    const normalized = [...new Set(values.map(normalizeSymbol))];
+    const existing = new Set(watchlist.list().map(entry => entry.symbol));
     watchlist.ensure(normalized);
-    await Promise.all(normalized.map(ensureOne));
+    await Promise.all(normalized.filter(symbol => !existing.has(symbol)).map(ensureOne));
     return getWatchlist();
   }
 

@@ -139,3 +139,17 @@ test('price resolver falls back to public Binance spot price for an older local 
   assert.equal(requested,'https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT');
   assert.equal(price,2468.75);
 });
+
+test('subscription refresh excludes core symbols and keeps dynamic symbols', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const symbols=mod.dynamicSymbolsForRefresh([
+    {symbol:'BTCUSDT'},{symbol:'NEARUSDT'},{symbol:'SOLUSDT'},{symbol:'STRKUSDT'}
+  ]);
+  assert.deepEqual(symbols,['NEARUSDT','STRKUSDT']);
+});
+
+test('subscription refresh cadence is minutes, not every watcher poll', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  assert.equal(mod.shouldRefreshSubscriptions(1_000,300_999,300_000),false);
+  assert.equal(mod.shouldRefreshSubscriptions(1_000,301_000,300_000),true);
+});

@@ -3,7 +3,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { normalizeSymbol } from './config.js';
+import { CORE_SYMBOLS, normalizeSymbol } from './config.js';
 import {
   getLocalServiceConfig,
   ensureRuntimeDependencies,
@@ -240,6 +240,15 @@ async function ensureFeedSymbols(config, symbols) {
   if (!response.ok) throw new Error(`feed_ensure_failed_${response.status}`);
 }
 
+export function dynamicSymbolsForRefresh(setups = []) {
+  const core = new Set(CORE_SYMBOLS);
+  return [...new Set(setups.map(row => normalizeSymbol(row.symbol)).filter(symbol => !core.has(symbol)))];
+}
+
+export function shouldRefreshSubscriptions(lastRefreshAt, now = Date.now(), intervalMs = 300_000) {
+  return now - lastRefreshAt >= intervalMs;
+}
+
 async function fetchSnapshot(config, symbol) {
   const response = await fetch(`${config.feedUrl}/v1/microstructure/${encodeURIComponent(symbol)}`, { signal: AbortSignal.timeout(2500) });
   if (!response.ok) throw new Error(`snapshot_failed_${response.status}`);
@@ -266,6 +275,7 @@ export async function runWatcherDaemon({ config = getWatcherConfig() } = {}) {
   ensureRuntimeDependencies();
   await startLocalService();
   const states = new Map();
+  let lastSubscriptionRefreshAt = 0;
   let stopping = false;
   const stop = () => { stopping = true; };
   process.once('SIGTERM', stop);
@@ -275,8 +285,11 @@ export async function runWatcherDaemon({ config = getWatcherConfig() } = {}) {
   while (!stopping) {
     try {
       const setups = (await readSetups({ config })).filter(row => row.enabled);
-      const symbols = [...new Set(setups.map(row => row.symbol))];
-      await ensureFeedSymbols(config, symbols);
+      const loopNow = Date.now();
+      if (shouldRefreshSubscriptions(lastSubscriptionRefreshAt, loopNow)) {
+        await ensureFeedSymbols(config, dynamicSymbolsForRefresh(setups));
+        lastSubscriptionRefreshAt = loopNow;
+      }
       for (const setup of setups) {
         try {
           const snapshot = await fetchSnapshot(config, setup.symbol);

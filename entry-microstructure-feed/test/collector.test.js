@@ -142,3 +142,24 @@ test('snapshot exposes latest primary-family mid price for local trigger watcher
   assert.equal(snap.currentMid,101.25);
   ctx.collector.stop();
 });
+
+test('re-ensuring watched symbols refreshes TTL without rebuilding active feed books', async () => {
+  const now={value:0}; const ctx=setup(now); await ctx.collector.start();
+  emitAllHealthy(ctx,'BTCUSDT',0,100);
+  now.value=60_000; emitAllHealthy(ctx,'BTCUSDT',60_000,101);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').runtime,'FULL_EVENT_STREAM');
+  const coreEnsuresBefore=ctx.binance.ensured.filter(s=>s==='BTCUSDT').length;
+  await ctx.collector.ensureSymbols(['BTCUSDT']);
+  assert.equal(ctx.binance.ensured.filter(s=>s==='BTCUSDT').length,coreEnsuresBefore);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').runtime,'FULL_EVENT_STREAM');
+
+  now.value=70_000;
+  await ctx.collector.ensureSymbols(['STXUSDT']);
+  const dynamicEnsuresBefore=ctx.binance.ensured.filter(s=>s==='STXUSDT').length;
+  now.value=70_000 + DYNAMIC_TTL_MS - 1_000;
+  await ctx.collector.ensureSymbols(['STXUSDT']);
+  assert.equal(ctx.binance.ensured.filter(s=>s==='STXUSDT').length,dynamicEnsuresBefore);
+  now.value=70_000 + DYNAMIC_TTL_MS + 1_000;
+  assert.ok(ctx.collector.getWatchlist().some(x=>x.symbol==='STXUSDT'));
+  ctx.collector.stop();
+});

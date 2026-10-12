@@ -1,6 +1,12 @@
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { normalizeSymbol } from './config.js';
+import { createBinanceFeed } from './binance-feed.js';
+import { createBybitFeed } from './bybit-feed.js';
+import { createWatchlist } from './watchlist.js';
+import { createCollector } from './collector.js';
+import { createLogger } from './logger.js';
 
 export const MCP_PROTOCOL_VERSION = '2026-07-28';
 const SERVER_INFO = { name: 'entry-microstructure-feed', version: '0.1.0' };
@@ -273,5 +279,85 @@ export function createHttpServer({
     } catch (error) {
       safeFailure(res, error);
     }
+  });
+}
+
+
+export function createDefaultCollector({ logger = createLogger() } = {}) {
+  const binanceFeed = createBinanceFeed({ logger });
+  const bybitFeed = createBybitFeed({ logger });
+  const watchlist = createWatchlist();
+  return createCollector({ binanceFeed, bybitFeed, watchlist, logger });
+}
+
+export async function startService({
+  env = process.env,
+  collector: injectedCollector,
+  logger: injectedLogger,
+  host = '0.0.0.0',
+  signalTarget = process,
+  installSignalHandlers = true
+} = {}) {
+  const logger = injectedLogger ?? createLogger({ env });
+  const collector = injectedCollector ?? createDefaultCollector({ logger });
+  await collector.start();
+
+  const startedAt = Date.now();
+  const healthProvider = () => {
+    const status = collector.getStatus();
+    const watchlist = collector.getWatchlist();
+    const lastEventAges = {};
+    for (const item of watchlist) {
+      try { lastEventAges[item.symbol] = collector.getSnapshot(item.symbol).freshness?.maxAgeMs ?? null; }
+      catch { lastEventAges[item.symbol] = null; }
+    }
+    return {
+      uptimeMs: Date.now() - startedAt,
+      activeSymbols: status.activeSymbols,
+      runtimeCounts: status.runtimeCounts,
+      exchanges: status.feeds,
+      lastEventAges
+    };
+  };
+
+  const server = createHttpServer({ env, collector, logger, healthProvider });
+  const port = Number(env.PORT ?? 3000);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('invalid_port');
+  await new Promise((resolve, reject) => {
+    const onError = error => { server.off('listening', onListening); reject(error); };
+    const onListening = () => { server.off('error', onError); resolve(); };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(port, host);
+  });
+
+  let stopped = false;
+  const signalHandler = () => { void stop(); };
+  if (installSignalHandlers && typeof signalTarget?.once === 'function') {
+    signalTarget.once('SIGTERM', signalHandler);
+    signalTarget.once('SIGINT', signalHandler);
+  }
+
+  async function stop() {
+    if (stopped) return;
+    stopped = true;
+    if (installSignalHandlers && typeof signalTarget?.off === 'function') {
+      signalTarget.off('SIGTERM', signalHandler);
+      signalTarget.off('SIGINT', signalHandler);
+    }
+    try { collector.stop(); } catch (error) { logger.error?.({ event: 'collector_stop_failed', message: error?.message }); }
+    if (server.listening) await new Promise(resolve => server.close(resolve));
+    logger.info?.({ event: 'service_stopped' });
+  }
+
+  logger.info?.({ event: 'service_started', host, port: server.address()?.port, authConfigured: authConfigured(env) });
+  return { server, collector, stop };
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const logger = createLogger({ env: process.env });
+  startService({ logger }).catch(error => {
+    logger.error({ event: 'startup_failed', message: redact(error?.message || 'startup_failed', process.env) });
+    process.exitCode = 1;
   });
 }

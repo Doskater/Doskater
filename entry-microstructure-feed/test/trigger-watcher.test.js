@@ -120,3 +120,22 @@ test('upsert and remove persist arbitrary future coin setups', async () => {
   rows=await mod.readSetups({config,fsImpl});
   assert.deepEqual(rows.map(x=>x.symbol),['STRKUSDT']);
 });
+
+test('price resolver prefers currentMid from the local feed without external request', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  let fetched=false;
+  const price=await mod.resolveSnapshotPrice({currentMid:123.45},'BTCUSDT',{fetchImpl:async()=>{fetched=true; throw new Error('unexpected');}});
+  assert.equal(price,123.45);
+  assert.equal(fetched,false);
+});
+
+test('price resolver falls back to public Binance spot price for an older local feed', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  let requested;
+  const price=await mod.resolveSnapshotPrice({},'ETHUSDT',{fetchImpl:async url=>{
+    requested=String(url);
+    return {ok:true,json:async()=>({symbol:'ETHUSDT',price:'2468.75'})};
+  }});
+  assert.equal(requested,'https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT');
+  assert.equal(price,2468.75);
+});

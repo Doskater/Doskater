@@ -246,6 +246,18 @@ async function fetchSnapshot(config, symbol) {
   return response.json();
 }
 
+export async function resolveSnapshotPrice(snapshot, symbol, { fetchImpl = fetch } = {}) {
+  const local = Number(snapshot?.currentMid);
+  if (Number.isFinite(local) && local > 0) return local;
+  const normalized = normalizeSymbol(symbol);
+  const response = await fetchImpl(`https://api.binance.com/api/v3/ticker/price?symbol=${encodeURIComponent(normalized)}`, { signal: AbortSignal.timeout(2000) });
+  if (!response?.ok) throw new Error(`price_fallback_failed_${response?.status ?? 'network'}`);
+  const body = await response.json();
+  const price = Number(body?.price);
+  if (!Number.isFinite(price) || price <= 0) throw new Error('price_fallback_invalid');
+  return price;
+}
+
 function signature(setup) {
   return JSON.stringify(setup);
 }
@@ -268,6 +280,7 @@ export async function runWatcherDaemon({ config = getWatcherConfig() } = {}) {
       for (const setup of setups) {
         try {
           const snapshot = await fetchSnapshot(config, setup.symbol);
+          snapshot.currentMid = await resolveSnapshotPrice(snapshot, setup.symbol);
           const prior = states.get(setup.symbol);
           const sig = signature(setup);
           const state = prior?.signature === sig ? prior.state : createSetupState();

@@ -85,3 +85,12 @@ test('stale connection invalidates books, reconnects, and requires fresh snapsho
   await flush(); assert.equal(states.filter(x=>x.market==='spot').at(-1).state,'healthy');
   feed.stop();
 });
+
+test('allows collector to attach handlers after feed construction', async () => {
+  FakeSocket.instances=[]; const trades=[];
+  const feed=createBybitFeed({ WebSocketImpl:FakeSocket });
+  feed.setHandlers({ onTrade:x=>trades.push(x) });
+  feed.start(); FakeSocket.instances.forEach(s=>s.open()); feed.ensureSymbol('BTCUSDT');
+  FakeSocket.instances.find(s=>s.url.endsWith('/spot')).message({ topic:'publicTrade.BTCUSDT', ts:2, data:[{ T:1,s:'BTCUSDT',S:'Buy',v:'1',p:'100' }] });
+  await flush(); assert.equal(trades.length,1); feed.stop();
+});

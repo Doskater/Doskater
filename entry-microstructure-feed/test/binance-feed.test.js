@@ -98,3 +98,13 @@ test('reconnect schedules backoff and resubscribes watched symbols', async () =>
   assert.ok(created[0].sent.some(x => x.params?.some(p => p.startsWith('btcusdt@'))));
   feed.stop();
 });
+
+test('allows collector to attach handlers after feed construction', async () => {
+  FakeSocket.instances = [];
+  const trades = [];
+  const feed = createBinanceFeed({ WebSocketImpl: FakeSocket, fetchImpl: async () => jsonResponse({ lastUpdateId: 1, bids:[['100','1']], asks:[['101','1']] }) });
+  feed.setHandlers({ onTrade: x => trades.push(x) });
+  feed.start(); FakeSocket.instances.forEach(s => s.open()); await feed.ensureSymbol('BTCUSDT');
+  FakeSocket.instances.find(x => x.url.includes('stream.binance')).message({ e:'aggTrade', E:2, T:1, s:'BTCUSDT', p:'100', q:'1', m:false });
+  await flush(); assert.equal(trades.length, 1); feed.stop();
+});

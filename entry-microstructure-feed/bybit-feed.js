@@ -224,5 +224,12 @@ export function createBybitFeed({
     return { venue: 'bybit', connection, watched: [...watched], books: bookStates, lastMessage: Object.fromEntries(lastMessage) };
   }
 
-  return { start, stop, ensureSymbol, removeSymbol, status };
+  function setHandlers(next = {}) {
+    if (typeof next.onTrade === 'function') onTrade = next.onTrade;
+    if (typeof next.onBookState === 'function') onBookState = next.onBookState;
+    if (typeof next.onLiquidation === 'function') onLiquidation = next.onLiquidation;
+    if (typeof next.onStatus === 'function') onStatus = next.onStatus;
+  }
+
+  return { start, stop, ensureSymbol, removeSymbol, status, setHandlers };
 }

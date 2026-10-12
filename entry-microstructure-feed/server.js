@@ -114,7 +114,8 @@ export function createHttpServer({
   maxBodyBytes = DEFAULT_MAX_BODY_BYTES,
   rateLimitMax = DEFAULT_RATE_LIMIT_MAX,
   rateLimitWindowMs = DEFAULT_RATE_LIMIT_WINDOW_MS,
-  healthProvider
+  healthProvider,
+  allowUnauthenticatedLocal = false
 } = {}) {
   if (!collector) throw new Error('collector_required');
   const rate = new Map();
@@ -131,8 +132,15 @@ export function createHttpServer({
 
   function authorize(req, res) {
     if (!authConfigured(env)) {
-      sendJson(res, 503, { error: 'service_auth_not_configured' });
-      return false;
+      if (!allowUnauthenticatedLocal) {
+        sendJson(res, 503, { error: 'service_auth_not_configured' });
+        return false;
+      }
+      if (!withinRateLimit(req)) {
+        sendJson(res, 429, { error: 'rate_limit_exceeded' }, { 'retry-after': '60' });
+        return false;
+      }
+      return true;
     }
     if (!validBearer(req, env)) {
       sendJson(res, 401, { error: 'unauthorized' }, { 'www-authenticate': 'Bearer' });
@@ -294,11 +302,13 @@ export async function startService({
   env = process.env,
   collector: injectedCollector,
   logger: injectedLogger,
-  host = '0.0.0.0',
+  host,
   signalTarget = process,
   installSignalHandlers = true
 } = {}) {
   const logger = injectedLogger ?? createLogger({ env });
+  const listenHost = host ?? env.HOST ?? '127.0.0.1';
+  const localOnly = listenHost === '127.0.0.1' || listenHost === '::1' || listenHost === 'localhost';
   const collector = injectedCollector ?? createDefaultCollector({ logger });
   await collector.start();
 
@@ -320,7 +330,7 @@ export async function startService({
     };
   };
 
-  const server = createHttpServer({ env, collector, logger, healthProvider });
+  const server = createHttpServer({ env, collector, logger, healthProvider, allowUnauthenticatedLocal: localOnly });
   const port = Number(env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('invalid_port');
   await new Promise((resolve, reject) => {
@@ -328,7 +338,7 @@ export async function startService({
     const onListening = () => { server.off('error', onError); resolve(); };
     server.once('error', onError);
     server.once('listening', onListening);
-    server.listen(port, host);
+    server.listen(port, listenHost);
   });
 
   let stopped = false;
@@ -350,7 +360,7 @@ export async function startService({
     logger.info?.({ event: 'service_stopped' });
   }
 
-  logger.info?.({ event: 'service_started', host, port: server.address()?.port, authConfigured: authConfigured(env) });
+  logger.info?.({ event: 'service_started', host: listenHost, port: server.address()?.port, authConfigured: authConfigured(env), localOnly });
   return { server, collector, stop };
 }
 

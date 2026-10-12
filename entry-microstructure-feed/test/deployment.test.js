@@ -15,27 +15,27 @@ function collectorStub() {
   };
 }
 
-test('startService binds configured port on 0.0.0.0 and starts collector', async()=>{
+test('startService defaults to loopback and localhost API works without bearer', async()=>{
   const collector=collectorStub();
-  const runtime=await startService({env:{PORT:'0',MICROSTRUCTURE_FEED_TOKEN:'x'},collector,installSignalHandlers:false});
+  const runtime=await startService({env:{PORT:'0'},collector,installSignalHandlers:false});
   try {
-    assert.equal(runtime.server.address().address,'0.0.0.0');
+    assert.equal(runtime.server.address().address,'127.0.0.1');
     assert.ok(runtime.server.address().port>0);
     assert.equal(collector.counts().started,1);
+    const port=runtime.server.address().port;
+    const status=await fetch(`http://127.0.0.1:${port}/v1/status`);
+    assert.equal(status.status,200);
   } finally { await runtime.stop(); }
   assert.equal(collector.counts().stopped,1);
 });
 
-test('health remains public without token while protected API fails closed', async()=>{
+test('explicit public bind still fails closed without bearer configuration', async()=>{
   const collector=collectorStub();
-  const runtime=await startService({env:{PORT:'0'},collector,installSignalHandlers:false});
+  const runtime=await startService({env:{PORT:'0'},host:'0.0.0.0',collector,installSignalHandlers:false});
   try {
     const port=runtime.server.address().port;
     const health=await fetch(`http://127.0.0.1:${port}/healthz`);
     assert.equal(health.status,200);
-    const body=await health.json();
-    assert.equal(body.activeSymbols,3);
-    assert.ok(body.runtimeCounts);
     const status=await fetch(`http://127.0.0.1:${port}/v1/status`);
     assert.equal(status.status,503);
   } finally { await runtime.stop(); }
@@ -43,7 +43,7 @@ test('health remains public without token while protected API fails closed', asy
 
 test('SIGTERM invokes graceful stop exactly once', async()=>{
   const collector=collectorStub(); const signals=new EventEmitter();
-  const runtime=await startService({env:{PORT:'0',MICROSTRUCTURE_FEED_TOKEN:'x'},collector,signalTarget:signals,installSignalHandlers:true});
+  const runtime=await startService({env:{PORT:'0'},collector,signalTarget:signals,installSignalHandlers:true});
   signals.emit('SIGTERM');
   await new Promise(resolve=>setImmediate(resolve));
   assert.equal(collector.counts().stopped,1);

@@ -8,9 +8,13 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "for f in config.js ring-buffer.js normalizers.js order-book.js features.js watchlist.js binance-feed.js bybit-feed.js collector.js logger.js server.js scripts/smoke.js; do node --check \"$f\" || exit 1; done",
+    "check": "for f in config.js ring-buffer.js normalizers.js order-book.js features.js watchlist.js binance-feed.js bybit-feed.js collector.js logger.js server.js local-service.js scripts/smoke.js; do node --check \"$f\" || exit 1; done",
     "start": "node server.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "local:start": "node local-service.js start",
+    "local:ensure": "node local-service.js ensure",
+    "local:status": "node local-service.js status",
+    "local:stop": "node local-service.js stop"
   },
   "dependencies": {
     "ws": "^8.18.3"

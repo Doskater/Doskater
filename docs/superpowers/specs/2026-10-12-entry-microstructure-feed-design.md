@@ -1,5 +1,19 @@
 # Entry Microstructure Feed — Design
 
+
+## Deployment Override — 2026-10-13
+
+The current v1 deployment target is **local-only on the user's Mac mini**. This override supersedes every Render/paid-cloud deployment instruction later in this document.
+
+- Bind HTTP/MCP to `127.0.0.1` by default; no public internet exposure.
+- Local lifecycle is controlled by `npm run local:ensure`, `npm run local:status`, and `npm run local:stop`.
+- Default local endpoint: `http://127.0.0.1:8791`.
+- Runtime PID/log state lives outside the repository under `~/Library/Application Support/entry-microstructure-feed/`.
+- Loopback-only access may operate without `MICROSTRUCTURE_FEED_TOKEN`; if a non-loopback bind is explicitly requested, protected endpoints fail closed unless the bearer token is configured.
+- The Trading Pipeline should ensure the collector at the start of a full run, perform broader analysis while it warms, and use event-level features only at `FULL_EVENT_STREAM`.
+- If the Mac/service is unavailable or runtime is not full, the pipeline falls back to the documented `SNAPSHOT PROXY` behavior and labels that limitation.
+- No Render, Oracle, public domain, or paid hosting is required for v1.
+
 ## Goal
 
 Add a small, read-only, event-level market-data service for the Trading Pipeline so ChatGPT can evaluate entry timing from information that ordinary Binance/Bybit plugin calls do not preserve between requests.

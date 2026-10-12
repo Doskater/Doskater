@@ -4,6 +4,28 @@ Read-only event-level market-data service for the Trading Pipeline's Entry Intel
 
 It complements the existing Binance/Bybit ChatGPT tools. It deliberately does **not** duplicate slower data already available there (OI, funding, candles, top-trader positioning, ADL, normal market snapshots). Its job is to preserve event sequence information that ordinary request/response tools lose between calls.
 
+## Deployment model
+
+The v1 deployment target is the user's local Mac mini, not Render or another public cloud host.
+
+Normal lifecycle:
+
+```text
+Trading Pipeline / Desktop Commander
+        ↓
+local:ensure
+        ↓
+127.0.0.1:8791
+        ↓
+Binance + Bybit public WebSockets
+        ↓
+60s WARMING_UP
+        ↓
+FULL_EVENT_STREAM
+```
+
+When the Mac is off or the collector is not running, the Trading Pipeline must fall back to its documented `SNAPSHOT PROXY` mode and label that limitation explicitly.
+
 ## What it collects
 
 Public market data only:
@@ -34,7 +56,7 @@ Rolling windows: 1s, 5s, 30s and 60s.
 
 Every symbol reports exactly one state:
 
-- `FULL_EVENT_STREAM` — required venue books are sequence-valid, events are fresh, and a complete 60s post-sync history exists.
+- `FULL_EVENT_STREAM` — required venue books are sequence-valid, events are fresh, and 60 seconds of continuous healthy post-sync history exist.
 - `WARMING_UP` — connections/books are establishing or a fresh 60s history is being rebuilt after reconnect.
 - `PARTIAL` — at least one venue family is healthy but expected coverage is missing/stale.
 - `UNAVAILABLE` — no trustworthy event-level coverage is available after the warm-up grace period.
@@ -43,7 +65,7 @@ A reconnect, stale stream, crossed book, sequence gap or new snapshot invalidate
 
 ## Watchlist
 
-Always hot:
+Always hot while the service is running:
 
 - `BTCUSDT`
 - `ETHUSDT`
@@ -51,23 +73,24 @@ Always hot:
 
 The Trading Pipeline may dynamically ensure additional finalists. v1 allows at most 12 total active symbols. Dynamic symbols expire after 20 minutes without refresh; core symbols never expire.
 
-## HTTP API
+## Local HTTP/MCP API
 
-`GET /healthz` is public.
+Default endpoint:
 
-All other endpoints require:
+`http://127.0.0.1:8791`
 
-`Authorization: Bearer $MICROSTRUCTURE_FEED_TOKEN`
+Endpoints:
 
-Protected endpoints:
-
+- `GET /healthz`
 - `GET /v1/status`
 - `GET /v1/watchlist`
 - `POST /v1/watchlist/ensure` with `{"symbols":["STXUSDT"]}`
 - `GET /v1/microstructure/BTCUSDT`
 - `POST /mcp`
 
-The bearer token protects this service's control/read surface only. It is not an exchange credential.
+When bound to loopback (`127.0.0.1`, `::1` or `localhost`), the local API may run without a bearer token so Desktop Commander / the local Trading Pipeline can use it directly.
+
+If the service is explicitly bound to a non-loopback address such as `0.0.0.0`, the protected API still fails closed unless `MICROSTRUCTURE_FEED_TOKEN` is configured. A configured token is always enforced.
 
 ## MCP tools
 
@@ -80,7 +103,35 @@ Exactly four tools are exposed, all annotated read-only/non-destructive:
 
 `ensure_symbols` only changes the in-memory public-data subscription watchlist. It cannot trade.
 
-## Local development
+## Local lifecycle
+
+From the service directory:
+
+```sh
+npm run local:ensure
+npm run local:status
+npm run local:stop
+```
+
+`local:ensure` is idempotent: it starts the service if needed and otherwise returns the existing healthy process.
+
+Runtime state is stored outside the repository:
+
+```text
+~/Library/Application Support/entry-microstructure-feed/service.json
+~/Library/Application Support/entry-microstructure-feed/service.log
+```
+
+The manager validates both PID liveness and `/healthz` service identity before treating the process as healthy or before sending SIGTERM. This avoids killing an unrelated reused PID.
+
+Default local port: `8791`.
+
+Optional overrides:
+
+- `ENTRY_MICROSTRUCTURE_PORT`
+- `ENTRY_MICROSTRUCTURE_STATE_DIR`
+
+## Development and verification
 
 ```sh
 cd entry-microstructure-feed
@@ -91,34 +142,6 @@ npm run smoke
 ```
 
 The live smoke test uses public streams only. It waits for BTC/ETH/SOL to reach `FULL_EVENT_STREAM`, forces a Binance adapter disconnect, verifies degraded coverage, reconnects, and requires a fresh `WARMING_UP` period.
-
-To run the HTTP/MCP service locally:
-
-```sh
-cd entry-microstructure-feed
-MICROSTRUCTURE_FEED_TOKEN='use-a-random-local-token' PORT=3000 npm start
-```
-
-## Render deployment
-
-Target service:
-
-- name: `entry-microstructure-feed`
-- repo: `https://github.com/Doskater/Doskater`
-- branch: `main`
-- region: Frankfurt
-- runtime: Node.js
-- plan: always-on paid Starter or equivalent
-- auto-deploy: enabled
-- build: `cd entry-microstructure-feed && npm install --omit=dev && npm run check`
-- start: `cd entry-microstructure-feed && npm start`
-- health path: `/healthz`
-
-Required service secret:
-
-- `MICROSTRUCTURE_FEED_TOKEN` — high-entropy random bearer token used only by the private client/plugin.
-
-No exchange API credentials should be configured on this service.
 
 ## Data integrity
 
@@ -142,6 +165,6 @@ Logs contain operational state transitions/errors only. Raw trades/order-book pa
 
 ## Trading Pipeline use
 
-The normal pipeline still uses the existing Binance/Bybit ChatGPT tools for market/derivatives context. This feed activates only near a valid candidate entry zone and supplies the event-level timing features used by Entry Intelligence.
+At the beginning of a full trading-pipeline run, Desktop Commander should call `npm run local:ensure` (or equivalently ensure the service is healthy at `127.0.0.1:8791`). The rest of the pipeline can perform macro/market/derivatives analysis while the feed warms.
 
-If this service is `PARTIAL` or `UNAVAILABLE`, the Trading Pipeline may fall back to its documented `SNAPSHOT PROXY` mode, but must label that limitation explicitly.
+Near a valid candidate entry zone, Entry Intelligence should read the local event-level snapshot. If the feed is `FULL_EVENT_STREAM`, use the event-level features. If it is `WARMING_UP`, `PARTIAL` or `UNAVAILABLE`, do not pretend event-level evidence exists; fall back to the documented `SNAPSHOT PROXY` behavior where appropriate.

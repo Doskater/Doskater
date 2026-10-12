@@ -1,5 +1,21 @@
 # Entry Microstructure Feed Implementation Plan
 
+
+## Deployment Override — 2026-10-13
+
+The user selected **local Mac mini deployment** instead of Render. This section supersedes all Render-specific goals, constraints, and Task 12 steps below.
+
+Current deployment work:
+
+- default bind `127.0.0.1`; local port `8791`;
+- add idempotent `local:ensure`, plus `local:status` and `local:stop`;
+- store PID/log outside the repo under `~/Library/Application Support/entry-microstructure-feed/`;
+- allow no bearer only for loopback-only operation; retain fail-closed auth for any explicit non-loopback bind;
+- verify real local lifecycle and `FULL_EVENT_STREAM` on BTC/ETH/SOL;
+- update Trading Pipeline v2.9 so a full run ensures the local collector first and falls back to `SNAPSHOT PROXY` if unavailable/non-full.
+
+No external deployment should be created as part of this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a read-only Render service that continuously consumes Binance/Bybit public event streams and exposes compact, trustworthy entry-microstructure features to the Trading Pipeline.

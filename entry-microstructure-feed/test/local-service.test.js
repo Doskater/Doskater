@@ -40,3 +40,31 @@ test('readLocalStatus validates both pid liveness and localhost health identity'
   assert.equal(status.healthy, true);
   assert.equal(status.pid, 4321);
 });
+
+test('dependency bootstrap is skipped when ws is already installed', async () => {
+  const mod = await loadModule();
+  let spawned = false;
+  const result = mod.ensureRuntimeDependencies({
+    config: { cwd: '/repo/entry-microstructure-feed' },
+    existsImpl: () => true,
+    spawnSyncImpl: () => { spawned = true; return { status: 0 }; }
+  });
+  assert.equal(result.installed, false);
+  assert.equal(spawned, false);
+});
+
+test('dependency bootstrap installs production deps once when ws is missing', async () => {
+  const mod = await loadModule();
+  let exists = false;
+  let call;
+  const result = mod.ensureRuntimeDependencies({
+    config: { cwd: '/repo/entry-microstructure-feed' },
+    existsImpl: () => exists,
+    spawnSyncImpl: (command, args, options) => { call = { command, args, options }; exists = true; return { status: 0 }; },
+    platform: 'darwin'
+  });
+  assert.equal(result.installed, true);
+  assert.equal(call.command, 'npm');
+  assert.deepEqual(call.args, ['install', '--omit=dev', '--ignore-scripts']);
+  assert.equal(call.options.cwd, '/repo/entry-microstructure-feed');
+});

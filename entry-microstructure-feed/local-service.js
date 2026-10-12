@@ -1,5 +1,5 @@
-import { promises as fs, openSync, closeSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { promises as fs, openSync, closeSync, existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,6 +26,21 @@ export function getLocalServiceConfig({ home = os.homedir(), env = process.env }
     cwd: BASE_DIR
   };
 }
+
+export function ensureRuntimeDependencies({
+  config = getLocalServiceConfig(),
+  existsImpl = existsSync,
+  spawnSyncImpl = spawnSync,
+  platform = process.platform
+} = {}) {
+  const marker = path.join(config.cwd, 'node_modules', 'ws', 'package.json');
+  if (existsImpl(marker)) return { installed: false };
+  const command = platform === 'win32' ? 'npm.cmd' : 'npm';
+  const result = spawnSyncImpl(command, ['install', '--omit=dev', '--ignore-scripts'], { cwd: config.cwd, stdio: 'inherit' });
+  if (result?.error || result?.status !== 0 || !existsImpl(marker)) throw new Error('local_dependency_install_failed');
+  return { installed: true };
+}
+
 
 async function readState(fsImpl, pidFile) {
   try {
@@ -104,6 +119,8 @@ export async function startLocalService({
     if (!status.running) break;
     await sleep(150);
   }
+  try { if (isPidAlive(child.pid, killImpl)) killImpl(child.pid, 'SIGTERM'); } catch {}
+  try { await fsImpl.unlink(config.pidFile); } catch {}
   throw new Error('local_service_start_timeout');
 }
 
@@ -136,8 +153,10 @@ export async function stopLocalService({
 async function runCli() {
   const command = process.argv[2] ?? 'status';
   let result;
-  if (command === 'start' || command === 'ensure') result = await startLocalService();
-  else if (command === 'status') result = await readLocalStatus();
+  if (command === 'start' || command === 'ensure') {
+    ensureRuntimeDependencies();
+    result = await startLocalService();
+  } else if (command === 'status') result = await readLocalStatus();
   else if (command === 'stop') result = await stopLocalService();
   else throw new Error('usage: node local-service.js <start|ensure|status|stop>');
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

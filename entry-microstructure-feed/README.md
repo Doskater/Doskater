@@ -114,6 +114,7 @@ npm run local:stop
 ```
 
 `local:ensure` is idempotent: it starts the service if needed and otherwise returns the existing healthy process.
+On a fresh checkout, `local:ensure` automatically installs the locked production dependencies (`npm install --omit=dev --ignore-scripts`) if `ws` is not present.
 
 Runtime state is stored outside the repository:
 

@@ -132,3 +132,13 @@ test('FULL_EVENT_STREAM uses continuous healthy duration, not an exact 60s span 
   assert.equal(ctx.collector.getSnapshot('ETHUSDT').runtime,'FULL_EVENT_STREAM');
   ctx.collector.stop();
 });
+
+test('snapshot exposes latest primary-family mid price for local trigger watchers', async () => {
+  const now={value:0}; const ctx=setup(now); await ctx.collector.start();
+  emitAllHealthy(ctx,'BTCUSDT',0,100);
+  now.value=1_000; emitAllHealthy(ctx,'BTCUSDT',1_000,101.25);
+  const snap=ctx.collector.getSnapshot('BTCUSDT');
+  assert.equal(snap.primaryFamily,'binance:spot');
+  assert.equal(snap.currentMid,101.25);
+  ctx.collector.stop();
+});

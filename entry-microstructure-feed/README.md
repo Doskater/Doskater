@@ -169,3 +169,42 @@ Logs contain operational state transitions/errors only. Raw trades/order-book pa
 At the beginning of a full trading-pipeline run, Desktop Commander should call `npm run local:ensure` (or equivalently ensure the service is healthy at `127.0.0.1:8791`). The rest of the pipeline can perform macro/market/derivatives analysis while the feed warms.
 
 Near a valid candidate entry zone, Entry Intelligence should read the local event-level snapshot. If the feed is `FULL_EVENT_STREAM`, use the event-level features. If it is `WARMING_UP`, `PARTIAL` or `UNAVAILABLE`, do not pretend event-level evidence exists; fall back to the documented `SNAPSHOT PROXY` behavior where appropriate.
+
+## Local trigger watcher
+
+The optional watcher is notification-only. It never places, changes, or cancels orders.
+It persists arbitrary coin setups under `~/Library/Application Support/entry-microstructure-feed/watcher-setups.json`, refreshes dynamic feed subscriptions while they are monitored, and emits a macOS notification only after the configured trigger and microstructure confirmation rules pass.
+
+Default confirmation rules for a setup are:
+
+- trigger price holds continuously for 30 seconds;
+- feed runtime is `FULL_EVENT_STREAM`;
+- 60s aggressor imbalance is > +0.30 for LONG or < -0.30 for SHORT;
+- impact asymmetry is `buy_more_efficient` for LONG or `sell_more_efficient` for SHORT;
+- no opposite-side absorption veto;
+- two valid confirmations at least 12 seconds apart;
+- after notification, the setup latches until price invalidates the trigger, preventing repeated alerts.
+
+Register or update any symbol and auto-start both feed and watcher:
+
+```sh
+cd /Users/feliks/Projects/trading-data-chatgpt-proxy/entry-microstructure-feed
+npm run watcher:ensure -- --symbol NEARUSDT --side long --trigger 5.25
+```
+
+Optional overrides:
+
+```sh
+--hold-ms 30000 --min-imbalance 0.30 --confirmations 2 --confirmation-interval-ms 12000
+```
+
+Management:
+
+```sh
+npm run watcher:list
+npm run watcher:status
+npm run watcher:remove -- --symbol NEARUSDT
+npm run watcher:stop
+```
+
+Future ChatGPT sessions using Desktop Commander can invoke these commands whenever the user asks to monitor a setup. The watcher keeps the corresponding dynamic symbol active in the event-level collector while the setup remains registered.

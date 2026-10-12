@@ -1,0 +1,122 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+async function loadModule() {
+  try { return await import('../trigger-watcher.js'); }
+  catch { return null; }
+}
+
+function longSnapshot({ price=107, runtime='FULL_EVENT_STREAM', imbalance=0.5, impact='buy_more_efficient', absorption='buy' } = {}) {
+  return {
+    symbol:'SOLUSDT', currentMid:price, runtime,
+    windows:{'60000':{
+      aggressor:{imbalance,quality:'ok'},
+      impactAsymmetry:{direction:impact,quality:'ok'},
+      refill:{absorptionDirection:absorption,quality:'ok'}
+    }}
+  };
+}
+
+function shortSnapshot({ price=79_000, runtime='FULL_EVENT_STREAM', imbalance=-0.5, impact='sell_more_efficient', absorption='sell' } = {}) {
+  return {
+    symbol:'BTCUSDT', currentMid:price, runtime,
+    windows:{'60000':{
+      aggressor:{imbalance,quality:'ok'},
+      impactAsymmetry:{direction:impact,quality:'ok'},
+      refill:{absorptionDirection:absorption,quality:'ok'}
+    }}
+  };
+}
+
+test('watcher module exists and stores state outside repository', async () => {
+  const mod=await loadModule();
+  assert.ok(mod,'trigger-watcher module should exist');
+  const config=mod.getWatcherConfig({home:'/Users/tester'});
+  assert.equal(config.stateDir,'/Users/tester/Library/Application Support/entry-microstructure-feed');
+  assert.equal(config.setupsFile,'/Users/tester/Library/Application Support/entry-microstructure-feed/watcher-setups.json');
+  assert.equal(config.pidFile,'/Users/tester/Library/Application Support/entry-microstructure-feed/watcher.json');
+  assert.equal(config.logFile,'/Users/tester/Library/Application Support/entry-microstructure-feed/watcher.log');
+});
+
+test('normalizes a generic long setup with conservative defaults', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const setup=mod.normalizeSetup({symbol:'nearusdt',side:'long',triggerPrice:5.25});
+  assert.deepEqual(setup,{
+    symbol:'NEARUSDT',side:'long',triggerPrice:5.25,holdMs:30_000,minImbalance:0.30,
+    confirmationsRequired:2,confirmationIntervalMs:12_000,requireImpact:true,absorptionVeto:true,enabled:true
+  });
+});
+
+test('long setup requires continuous hold and two spaced micro confirmations before alert', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const setup=mod.normalizeSetup({symbol:'SOLUSDT',side:'long',triggerPrice:106.5});
+  let state=mod.createSetupState();
+
+  let result=mod.evaluateSetup(setup,longSnapshot({price:106.6}),state,0);
+  state=result.state; assert.equal(result.alert,false); assert.equal(state.levelSince,0);
+
+  result=mod.evaluateSetup(setup,longSnapshot({price:106.7}),state,29_000);
+  state=result.state; assert.equal(result.alert,false); assert.equal(state.confirmationCount,0);
+
+  result=mod.evaluateSetup(setup,longSnapshot({price:106.8}),state,30_000);
+  state=result.state; assert.equal(result.alert,false); assert.equal(state.confirmationCount,1);
+
+  result=mod.evaluateSetup(setup,longSnapshot({price:106.9}),state,41_000);
+  state=result.state; assert.equal(result.alert,false); assert.equal(state.confirmationCount,1);
+
+  result=mod.evaluateSetup(setup,longSnapshot({price:107}),state,42_000);
+  assert.equal(result.alert,true); assert.equal(result.state.latched,true); assert.equal(result.state.confirmationCount,2);
+});
+
+test('long setup resets hold on price failure and vetoes sell absorption', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const setup=mod.normalizeSetup({symbol:'SOLUSDT',side:'long',triggerPrice:106.5});
+  let state=mod.createSetupState();
+  state=mod.evaluateSetup(setup,longSnapshot({price:106.7}),state,0).state;
+  state=mod.evaluateSetup(setup,longSnapshot({price:106.4}),state,20_000).state;
+  assert.equal(state.levelSince,null);
+  state=mod.evaluateSetup(setup,longSnapshot({price:106.8,absorption:'sell'}),state,30_000).state;
+  const result=mod.evaluateSetup(setup,longSnapshot({price:106.9,absorption:'sell'}),state,60_000);
+  assert.equal(result.alert,false); assert.equal(result.state.confirmationCount,0);
+});
+
+test('short setup mirrors imbalance impact and absorption rules', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const setup=mod.normalizeSetup({symbol:'BTCUSDT',side:'short',triggerPrice:80_000,holdMs:0,confirmationIntervalMs:1});
+  let state=mod.createSetupState();
+  let result=mod.evaluateSetup(setup,shortSnapshot({price:79_900}),state,100);
+  state=result.state; assert.equal(state.confirmationCount,1); assert.equal(result.alert,false);
+  result=mod.evaluateSetup(setup,shortSnapshot({price:79_800}),state,101);
+  assert.equal(result.alert,true);
+
+  const veto=mod.evaluateSetup(setup,shortSnapshot({price:79_700,absorption:'buy'}),mod.createSetupState(),200);
+  assert.equal(veto.alert,false); assert.equal(veto.state.confirmationCount,0);
+});
+
+test('latched setup rearms only after price invalidates trigger', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const setup=mod.normalizeSetup({symbol:'SOLUSDT',side:'long',triggerPrice:106.5,holdMs:0,confirmationIntervalMs:1});
+  let state={...mod.createSetupState(),latched:true,confirmationCount:2};
+  let result=mod.evaluateSetup(setup,longSnapshot({price:107}),state,10);
+  assert.equal(result.alert,false); assert.equal(result.state.latched,true);
+  result=mod.evaluateSetup(setup,longSnapshot({price:106.4}),result.state,11);
+  assert.equal(result.state.latched,false); assert.equal(result.state.levelSince,null); assert.equal(result.state.confirmationCount,0);
+});
+
+test('upsert and remove persist arbitrary future coin setups', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  let stored='';
+  const fsImpl={
+    mkdir:async()=>{},
+    readFile:async()=>{ if(!stored){const e=new Error('missing');e.code='ENOENT';throw e;} return stored; },
+    writeFile:async(_path,value)=>{stored=String(value);}
+  };
+  const config={stateDir:'/tmp/x',setupsFile:'/tmp/x/setups.json'};
+  await mod.upsertSetup({symbol:'NEARUSDT',side:'long',triggerPrice:5}, {config,fsImpl});
+  await mod.upsertSetup({symbol:'STRKUSDT',side:'short',triggerPrice:0.11}, {config,fsImpl});
+  let rows=await mod.readSetups({config,fsImpl});
+  assert.deepEqual(rows.map(x=>x.symbol),['NEARUSDT','STRKUSDT']);
+  await mod.removeSetup('NEARUSDT',{config,fsImpl});
+  rows=await mod.readSetups({config,fsImpl});
+  assert.deepEqual(rows.map(x=>x.symbol),['STRKUSDT']);
+});

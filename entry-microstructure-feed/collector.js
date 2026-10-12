@@ -214,6 +214,9 @@ export function createCollector({ binanceFeed, bybitFeed, watchlist, clock = Dat
     const coverage = coverageFor(symbol);
     const runtime = runtimeFor(symbol, coverage);
     const primaryFamily = primaryFamilyFor(coverage);
+    const currentMid = primaryFamily
+      ? (midBuffers.get(dataKey(primaryFamily, symbol))?.since(now() - RETENTION_MS).at(-1)?.mid ?? null)
+      : null;
     const windows = {};
     if (primaryFamily) for (const windowMs of WINDOW_MS) windows[String(windowMs)] = windowFeatures(symbol, primaryFamily, windowMs);
     const leader = leadLagFor(symbol);
@@ -224,6 +227,7 @@ export function createCollector({ binanceFeed, bybitFeed, watchlist, clock = Dat
       symbol,
       runtime,
       primaryFamily,
+      currentMid,
       freshness: { maxAgeMs: ageValues.length ? Math.max(...ageValues) : null, byFamily: Object.fromEntries(coverage.map(x => [x.family, x.ageMs])) },
       coverage,
       missingCoverage: coverage.filter(x => !x.healthy).map(x => x.family),

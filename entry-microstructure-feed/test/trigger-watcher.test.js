@@ -155,7 +155,7 @@ test('subscription refresh cadence is minutes, not every watcher poll', async ()
   assert.equal(mod.shouldRefreshSubscriptions(1_000,301_000,300_000),true);
 });
 
-test('ENTRY_CANDIDATE notification plays motif then speaks after a 75ms pause', async () => {
+test('ENTRY_CANDIDATE notification plays motif then speaks with no added pause', async () => {
   const mod=await loadModule(); assert.ok(mod);
   const built=mod.buildNotification(
     {symbol:'BTCUSDT',side:'long'},
@@ -172,7 +172,7 @@ test('ENTRY_CANDIDATE notification plays motif then speaks after a 75ms pause', 
   assert.equal(calls[1].cmd,'/bin/sh');
   assert.deepEqual(calls[1].args.slice(0,2),['-c',calls[1].args[1]]);
   assert.match(calls[1].args[1],/afplay/);
-  assert.match(calls[1].args[1],/sleep 0\.075/);
+  assert.match(calls[1].args[1],/sleep 0/);
   assert.match(calls[1].args[1],/say -v Milena/);
   assert.match(calls[1].args[3],/assets\/watcher-entry-candidate\.wav$/);
   assert.equal(calls[1].options.detached,true);

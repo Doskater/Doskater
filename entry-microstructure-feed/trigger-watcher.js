@@ -247,7 +247,7 @@ export function sendMacNotification(notification, { spawnImpl = spawn } = {}) {
   notificationChild.unref?.();
 
   const soundFile = path.join(BASE_DIR, 'assets', 'watcher-entry-candidate.wav');
-  const audioScript = '/usr/bin/afplay "$1"; /bin/sleep 0.075; /usr/bin/say -v Milena "Найдены новые сигналы"';
+  const audioScript = '/usr/bin/afplay "$1"; /bin/sleep 0; /usr/bin/say -v Milena "Найдены новые сигналы"';
   const audioChild = spawnImpl('/bin/sh', ['-c', audioScript, 'watcher-alert', soundFile], options);
   audioChild.unref?.();
   return notification;

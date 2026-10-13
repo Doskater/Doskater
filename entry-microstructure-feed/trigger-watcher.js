@@ -242,8 +242,12 @@ export function buildNotification(setup, snapshot) {
 
 export function sendMacNotification(notification, { spawnImpl = spawn } = {}) {
   const script = `display notification ${appleScriptString(notification.message)} with title ${appleScriptString(notification.title)}`;
-  const child = spawnImpl('/usr/bin/osascript', ['-e', script], { stdio: 'ignore', detached: true });
-  child.unref?.();
+  const options = { stdio: 'ignore', detached: true };
+  const notificationChild = spawnImpl('/usr/bin/osascript', ['-e', script], options);
+  notificationChild.unref?.();
+  const soundFile = path.join(BASE_DIR, 'assets', 'watcher-entry-candidate.wav');
+  const soundChild = spawnImpl('/usr/bin/afplay', [soundFile], options);
+  soundChild.unref?.();
   return notification;
 }
 

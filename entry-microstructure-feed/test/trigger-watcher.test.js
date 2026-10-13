@@ -154,3 +154,17 @@ test('subscription refresh cadence is minutes, not every watcher poll', async ()
   assert.equal(mod.shouldRefreshSubscriptions(1_000,300_999,300_000),false);
   assert.equal(mod.shouldRefreshSubscriptions(1_000,301_000,300_000),true);
 });
+
+test('ENTRY_CANDIDATE notification also plays the dedicated watcher sound', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const calls=[];
+  const spawnImpl=(cmd,args,options)=>{ calls.push({cmd,args,options}); return {unref(){}}; };
+  const notification={title:'BTCUSDT LONG ENTRY_CANDIDATE',message:'price 83000 | imbalance +0.50 | buy-efficient | FULL'};
+  const result=mod.sendMacNotification(notification,{spawnImpl});
+  assert.deepEqual(result,notification);
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].cmd,'/usr/bin/osascript');
+  assert.equal(calls[1].cmd,'/usr/bin/afplay');
+  assert.match(calls[1].args[0],/assets\/watcher-entry-candidate\.wav$/);
+  assert.equal(calls[1].options.detached,true);
+});

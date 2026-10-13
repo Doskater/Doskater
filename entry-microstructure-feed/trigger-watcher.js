@@ -235,7 +235,7 @@ export function buildNotification(setup, snapshot) {
   const price = Number(snapshot.currentMid);
   const efficiency = setup.side === 'long' ? 'buy-efficient' : 'sell-efficient';
   return {
-    title: `${setup.symbol} ${setup.side.toUpperCase()} ENTRY_CANDIDATE`,
+    title: `🟢 ${setup.symbol} ${setup.side.toUpperCase()} — НОВЫЙ СИГНАЛ`,
     message: `price ${Number.isFinite(price) ? price : '?'} | imbalance ${Number.isFinite(imbalance) ? `${imbalance >= 0 ? '+' : ''}${imbalance.toFixed(2)}` : '?'} | ${efficiency} | FULL`
   };
 }
@@ -245,9 +245,8 @@ export function sendMacNotification(notification, { spawnImpl = spawn } = {}) {
   const options = { stdio: 'ignore', detached: true };
   const notificationChild = spawnImpl('/usr/bin/osascript', ['-e', script], options);
   notificationChild.unref?.();
-  const soundFile = path.join(BASE_DIR, 'assets', 'watcher-entry-candidate.wav');
-  const soundChild = spawnImpl('/usr/bin/afplay', [soundFile], options);
-  soundChild.unref?.();
+  const voiceChild = spawnImpl('/usr/bin/say', ['-v', 'Milena', 'Найдены новые сигналы'], options);
+  voiceChild.unref?.();
   return notification;
 }
 

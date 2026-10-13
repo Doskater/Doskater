@@ -207,7 +207,15 @@ npm run watcher:remove -- --symbol NEARUSDT
 npm run watcher:stop
 ```
 
-Future ChatGPT sessions using Desktop Commander can invoke these commands whenever the user asks to monitor a setup. The watcher keeps the corresponding dynamic symbol active in the event-level collector while the setup remains registered.
+Future full trading-pipeline runs follow the repository-level `PIPELINE_PROMPT.md`. Watcher configuration is pre-authorized to auto-sync after each full run when the analysis finds levels stale or missing; no separate user confirmation is required for watcher-only changes. The watcher keeps corresponding symbols active in the event-level collector while setups remain registered.
+
+To replace the complete watcher set atomically and log the pipeline reason:
+
+```sh
+npm run watcher:sync -- --file /tmp/desired-watcher-setups.json --reason "fresh pipeline structure"
+```
+
+This permission applies only to watcher configuration. It never authorizes place/amend/cancel/close, leverage or position-protection actions.
 
 ## Focused entry revalidation (manual execution only)
 

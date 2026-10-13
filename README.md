@@ -39,3 +39,7 @@ Python, Flask, pandas, openpyxl, BeautifulSoup, Playwright, HTML/CSS, CSV/Excel 
 ## Freelance focus
 
 I help small businesses automate repetitive workflows, process data, monitor websites, and build small internal tools.
+
+## Trading pipeline policy
+
+The canonical operating prompt for full trading-pipeline runs is [`PIPELINE_PROMPT.md`](./PIPELINE_PROMPT.md). It explicitly pre-authorizes automatic watcher-level synchronization after a full run while preserving the hard boundary that order/leverage/protection writes require an explicit user instruction.

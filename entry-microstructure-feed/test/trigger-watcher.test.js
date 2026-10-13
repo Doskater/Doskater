@@ -177,3 +177,43 @@ test('ENTRY_CANDIDATE notification plays motif then speaks with no added pause',
   assert.match(calls[1].args[3],/assets\/watcher-entry-candidate\.wav$/);
   assert.equal(calls[1].options.detached,true);
 });
+
+test('pipeline watcher sync atomically replaces stale levels using conservative defaults', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  let stored=JSON.stringify([
+    mod.normalizeSetup({symbol:'BTCUSDT',side:'long',triggerPrice:83850}),
+    mod.normalizeSetup({symbol:'SOLUSDT',side:'short',triggerPrice:105.5})
+  ]);
+  const fsImpl={
+    mkdir:async()=>{},
+    readFile:async()=>stored,
+    writeFile:async(_path,value)=>{stored=String(value);}
+  };
+  const config={stateDir:'/tmp/x',setupsFile:'/tmp/x/setups.json'};
+  const result=await mod.syncSetups([
+    {symbol:'BTCUSDT',side:'long',triggerPrice:83350},
+    {symbol:'BTCUSDT',side:'short',triggerPrice:82900},
+    {symbol:'ETHUSDT',side:'long',triggerPrice:2516}
+  ],{config,fsImpl});
+  assert.deepEqual(result.changes.added,['BTCUSDT:short','ETHUSDT:long']);
+  assert.deepEqual(result.changes.updated,['BTCUSDT:long']);
+  assert.deepEqual(result.changes.removed,['SOLUSDT:short']);
+  const rows=await mod.readSetups({config,fsImpl});
+  assert.equal(rows.length,3);
+  assert.deepEqual(rows[0],{
+    symbol:'BTCUSDT',side:'long',triggerPrice:83350,holdMs:30_000,minImbalance:0.30,
+    confirmationsRequired:2,confirmationIntervalMs:12_000,requireImpact:true,absorptionVeto:true,enabled:true
+  });
+});
+
+test('pipeline watcher sync rejects duplicate symbol-side identities', async () => {
+  const mod=await loadModule(); assert.ok(mod);
+  const fsImpl={mkdir:async()=>{},readFile:async()=>{const e=new Error('missing');e.code='ENOENT';throw e;},writeFile:async()=>{}};
+  await assert.rejects(
+    mod.syncSetups([
+      {symbol:'NEARUSDT',side:'long',triggerPrice:5.08},
+      {symbol:'NEARUSDT',side:'long',triggerPrice:5.09}
+    ],{config:{stateDir:'/tmp/x',setupsFile:'/tmp/x/setups.json'},fsImpl}),
+    /duplicate_setup_identity/
+  );
+});

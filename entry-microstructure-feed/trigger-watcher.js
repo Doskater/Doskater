@@ -176,6 +176,28 @@ export async function removeSetup(symbol, options = {}) {
   return { removed: next.length !== rows.length, symbol: normalized };
 }
 
+export async function syncSetups(inputs, options = {}) {
+  if (!Array.isArray(inputs)) throw new Error('invalid_setups');
+  const next = inputs.map(normalizeSetup);
+  const identities = next.map(row => `${row.symbol}:${row.side}`);
+  if (new Set(identities).size !== identities.length) throw new Error('duplicate_setup_identity');
+
+  const before = await readSetups(options);
+  const beforeMap = new Map(before.map(row => [`${row.symbol}:${row.side}`, row]));
+  const nextMap = new Map(next.map(row => [`${row.symbol}:${row.side}`, row]));
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+  const added = [];
+  const updated = [];
+  const removed = [];
+  for (const [id, row] of nextMap) {
+    if (!beforeMap.has(id)) added.push(id);
+    else if (!same(beforeMap.get(id), row)) updated.push(id);
+  }
+  for (const id of beforeMap.keys()) if (!nextMap.has(id)) removed.push(id);
+  await writeSetups(next, options);
+  return { setups: next, changes: { added, updated, removed } };
+}
+
 function pidAlive(pid, killImpl = process.kill.bind(process)) {
   try { killImpl(pid, 0); return true; } catch { return false; }
 }
@@ -390,6 +412,24 @@ async function runCli() {
     process.stdout.write(`${JSON.stringify({ setup, watcher }, null, 2)}\n`);
     return;
   }
+  if (command === 'sync') {
+    const flags = parseArgs(process.argv.slice(3));
+    if (typeof flags.file !== 'string' || !flags.file) throw new Error('missing_sync_file');
+    const raw = JSON.parse(await fs.readFile(path.resolve(flags.file), 'utf8'));
+    const desired = Array.isArray(raw) ? raw : raw?.setups;
+    const result = await syncSetups(desired, { config });
+    ensureRuntimeDependencies();
+    await startLocalService();
+    await ensureFeedSymbols(config, [...new Set(result.setups.map(row => row.symbol))]);
+    const watcher = await startWatcher({ config });
+    const reason = typeof flags.reason === 'string' && flags.reason ? flags.reason : 'pipeline_auto_sync';
+    await appendLog(config, {
+      event: 'watcher_sync', reason, changes: result.changes, setupCount: result.setups.length,
+      setups: result.setups.map(({ symbol, side, triggerPrice }) => ({ symbol, side, triggerPrice }))
+    });
+    process.stdout.write(`${JSON.stringify({ ...result, reason, watcher }, null, 2)}\n`);
+    return;
+  }
   if (command === 'list') {
     process.stdout.write(`${JSON.stringify(await readSetups({ config }), null, 2)}\n`);
     return;
@@ -409,7 +449,7 @@ async function runCli() {
     process.stdout.write(`${JSON.stringify(await stopWatcher({ config }), null, 2)}\n`);
     return;
   }
-  throw new Error('usage: trigger-watcher.js <ensure|list|remove|status|stop> [--symbol SYMBOL --side long|short --trigger PRICE]');
+  throw new Error('usage: trigger-watcher.js <ensure|sync|list|remove|status|stop> [--symbol SYMBOL --side long|short --trigger PRICE]');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

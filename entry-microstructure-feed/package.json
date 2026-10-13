@@ -20,7 +20,8 @@
     "watcher:status": "node trigger-watcher.js status",
     "watcher:remove": "node trigger-watcher.js remove",
     "watcher:stop": "node trigger-watcher.js stop",
-    "entry:revalidate": "node scripts/revalidate-entry.js"
+    "entry:revalidate": "node scripts/revalidate-entry.js",
+    "watcher:sync": "node trigger-watcher.js sync"
   },
   "dependencies": {
     "ws": "^8.18.3"

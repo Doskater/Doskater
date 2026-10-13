@@ -14,4 +14,8 @@ test('canonical pipeline prompt pre-authorizes watcher sync without order execut
   assert.match(text,/npm run watcher:sync/);
   assert.match(text,/NEVER automatically place, amend, cancel, replace or close/);
   assert.match(text,/explicit user instruction/);
+  assert.match(text,/Terminal commands/);
+  assert.match(text,/one command per approved actionable entry/);
+  assert.match(text,/If there are no approved actionable entries, do not emit the Terminal commands block/);
+  assert.match(text,/must remain text and must not be executed automatically/);
 });

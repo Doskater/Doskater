@@ -52,6 +52,16 @@ NEVER automatically place, amend, cancel, replace or close a Demo or real order.
 
 A pipeline may generate a ready-to-run Demo terminal command after a valid final live gate, but it remains text until the user explicitly asks to execute it.
 
+## Terminal commands block for actionable entries
+
+If the final live gate approves one or more actionable entries during the current full run, the final response MUST include one dedicated `Terminal commands` block containing one command per approved actionable entry.
+
+Each command must be the complete copy-pasteable command produced by the existing safe Demo command builder/manual execution path, and must correspond to the final live-gated symbol, side, entry, stop, target and approved size. Do not output commands for `WAIT`, `NO TRADE`, stale, invalidated, or merely watched setups.
+
+All commands in this block must remain text and must not be executed automatically. The block is convenience output only; execution still requires an explicit user instruction in the current conversation.
+
+If there are no approved actionable entries, do not emit the Terminal commands block.
+
 Watcher notifications are attention signals only. When an `ENTRY_CANDIDATE` alert occurs, rerun the fresh full pipeline/live gate before recommending entry.
 
 ## Final response contract
@@ -63,4 +73,5 @@ For each full run, report:
 3. final `ENTER` / `WAIT` / `NO TRADE` decision;
 4. actionable entry/SL/TP/R:R/confidence only when justified;
 5. watcher auto-sync result (added/updated/removed/unchanged levels);
-6. no claim that an order was executed unless the user explicitly requested and the execution tool actually confirmed it.
+6. when one or more actionable entries are approved, one `Terminal commands` block with one command per approved actionable entry; omit this block when there are none;
+7. no claim that an order was executed unless the user explicitly requested and the execution tool actually confirmed it.

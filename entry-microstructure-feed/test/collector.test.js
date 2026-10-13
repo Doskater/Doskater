@@ -163,3 +163,25 @@ test('re-ensuring watched symbols refreshes TTL without rebuilding active feed b
   assert.ok(ctx.collector.getWatchlist().some(x=>x.symbol==='STXUSDT'));
   ctx.collector.stop();
 });
+
+test('snapshot tracks trade and book event timestamps separately, including future events',async()=>{
+  const now={value:1000};const ctx=setup(now);await ctx.collector.start();
+  ctx.binance.trade('spot','BTCUSDT','buy',100000,1000);
+  ctx.binance.book('spot','BTCUSDT','healthy',book(),7000);
+  now.value=7000;
+  const snap=ctx.collector.getSnapshot('BTCUSDT');
+  assert.equal(snap.asOf,7000);
+  assert.deepEqual(snap.freshness.eventsByFamily?.['binance:spot'],{lastTradeAt:1000,lastBookAt:7000});
+  ctx.binance.trade('spot','BTCUSDT','buy',100000,8000);
+  assert.equal(ctx.collector.getSnapshot('BTCUSDT').freshness.eventsByFamily['binance:spot'].lastTradeAt,8000);
+  ctx.collector.stop();
+});
+test('book invalidation clears trade and book event freshness before rewarm',async()=>{
+  const now={value:1000};const ctx=setup(now);await ctx.collector.start();emitAllHealthy(ctx,'BTCUSDT',1000);
+  ctx.binance.book('spot','BTCUSDT','WARMING_UP',book(100,false),1100);
+  const events=ctx.collector.getSnapshot('BTCUSDT').freshness.eventsByFamily;
+  assert.deepEqual(events?.['binance:spot'],{lastTradeAt:null,lastBookAt:null});
+  now.value=2000;ctx.binance.book('spot','BTCUSDT','healthy',book(),2000);
+  assert.deepEqual(ctx.collector.getSnapshot('BTCUSDT').freshness.eventsByFamily['binance:spot'],{lastTradeAt:null,lastBookAt:2000});
+  ctx.collector.stop();
+});

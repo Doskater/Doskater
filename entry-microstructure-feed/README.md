@@ -208,3 +208,55 @@ npm run watcher:stop
 ```
 
 Future ChatGPT sessions using Desktop Commander can invoke these commands whenever the user asks to monitor a setup. The watcher keeps the corresponding dynamic symbol active in the event-level collector while the setup remains registered.
+
+## Focused entry revalidation (manual execution only)
+
+Watcher confirmations now write `ENTRY_CANDIDATE` snapshots to `entry-journal.jsonl` in the same private state directory as watcher state. Each record includes a versioned setup ID, unique candidate ID, direction, trigger, observed price, detection time, microstructure and watcher policy. A failed journal write leaves the setup unlatched for retry. Both sides of a symbol continue to be tracked separately.
+
+Prepare a fresh focused analysis context for the candidate. The caller supplies structure/thesis, macro/event permission, current structural stop and targets, and an approved size plus instrument increments. This module does not perform broad market discovery or call ChatGPT. Copy the candidate's `setupId` from the journal; set `asOf` to the time of the actual analysis in Unix milliseconds. Example context shape:
+
+```json
+{
+  "symbol": "NEARUSDT",
+  "side": "short",
+  "setupId": "COPY_SETUP_ID_FROM_CANDIDATE",
+  "asOf": 0,
+  "thesisValid": true,
+  "structure": "valid",
+  "marketRiskAllowed": true,
+  "invalidationPrice": 4.98,
+  "targets": [4.78],
+  "qty": "10",
+  "qtyStep": "0.1",
+  "tickSize": "0.01",
+  "positionIdx": 0,
+  "reducedSizeFactor": 0.5
+}
+```
+
+The example's ID and timestamp must be replaced with actual candidate/analysis values. `qty` is an already approved maximum quantity; this layer does not infer budget/leverage or inspect your account. Provide actual exchange qtyStep/tickSize. Decimal precision is supported up to 12 fractional digits; extra precision is rejected. `positionIdx` defaults to 0 (one-way); hedge mode uses 1 for LONG and 2 for SHORT.
+
+From this package directory:
+
+```sh
+npm run entry:revalidate -- --candidate-id CANDIDATE_ID --context /absolute/path/context.json
+```
+
+The CLI reads the candidate from the journal and performs one read-only GET to the running local feed. It prints JSON with the final decision, current entry/stop/targets/RR, reason and freshness diagnostics. It starts no services and executes no command. Existing feed instances need to be restarted with the upgraded collector to expose `asOf` and per-family trade/book timestamps; missing fields give WAIT_RETEST.
+
+- `ENTER_NOW`: valid thesis/structure, confirmed fresh microstructure and RR >= 2.0.
+- `ENTER_REDUCED`: same gates, 1.5 <= RR < 2.0; default size factor 0.5, rounded down to qtyStep.
+- `WAIT_RETEST`: thesis not invalidated but current RR, trigger, flow, freshness or sizing is insufficient.
+- `INVALIDATED`: structure broken, thesis explicitly revoked or current price crosses structural invalidation.
+
+Entry uses the latest price; stop and targets use the new context. The nearest original target determines RR. A reached first target cannot be skipped to chase a farther target. Prices round conservatively to tickSize and RR is recalculated after rounding. An old candidate with fresh context/flow can still ENTER: candidate age is diagnostic, not a TTL.
+
+Only the final live gate can return ENTER. It requires FULL_EVENT_STREAM, current primary-family trade/book events, directionally confirmed aggressor imbalance and impact, and no absorption against the trade. These final requirements remain mandatory even if the original watcher disables its impact/absorption checks. Default source freshness is 5000ms, context freshness 15 minutes, and live timeout 2500ms. These can be overridden with validated `policy` options in the module API. Live snapshots generated before the request are rejected; journal latency cannot allow an expired approval.
+
+`evaluateFocusedEntry(candidate, snapshot, context, options)` returns a preliminary `eligibleDecision`; its public `decision` never grants ENTER. `runFocusedRevalidation(candidate, context, {initialSnapshot, getLiveSnapshot, appendEvent, now, policy})` performs final live IO and journals the decision before returning. Missing/stale data waits; malformed candidate/context fails diagnostically. Freshness metadata excludes rare liquidation events from entry TTL.
+
+For ENTER only, `terminalCommand` is a complete shell-quoted string. Copying and manually running that string uses the existing fixed-host Bybit Demo client and reads `BYBIT_DEMO_API_KEY` / `BYBIT_DEMO_API_SECRET` from your environment at execution time. No credentials are printed or stored. The generated order is an IOC Limit at the validated entry, with attached SL/TP in the same request (`tpslMode: Partial`). Fields follow [Bybit's create-order API](https://bybit-exchange.github.io/docs/v5/order/create-order). An IOC may partially fill or not fill; review the manual response/account before any next action. The command refuses execution after the earliest source/context freshness deadline; rerun revalidation after any delay. There are no automatic place/amend/cancel/close calls in this pipeline.
+
+All decisions append `REVALIDATION_DECISION` records with candidate/setup IDs, current RR and reason. Journal write failures prevent ENTER output. Pipeline code never imports the execution client for running requests; only the emitted command refers to it.
+
+Delayed SHORT example: candidate 4.93, fresh stop 4.98 and first target 4.78. Live price 4.91 gives risk 0.07, reward 0.13, RR ≈ 1.857 → ENTER_REDUCED if all gates pass. Live 4.88 gives RR 1 → WAIT_RETEST; live 4.99 crosses invalidation → INVALIDATED.

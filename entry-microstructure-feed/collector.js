@@ -226,10 +226,21 @@ export function createCollector({ binanceFeed, bybitFeed, watchlist, clock = Dat
     const ageValues = coverage.filter(x => x.ageMs !== null).map(x => x.ageMs);
     return {
       symbol,
+      asOf: now(),
       runtime,
       primaryFamily,
       currentMid,
-      freshness: { maxAgeMs: ageValues.length ? Math.max(...ageValues) : null, byFamily: Object.fromEntries(coverage.map(x => [x.family, x.ageMs])) },
+      freshness: {
+        maxAgeMs: ageValues.length ? Math.max(...ageValues) : null,
+        byFamily: Object.fromEntries(coverage.map(x => [x.family, x.ageMs])),
+        eventsByFamily: Object.fromEntries(EXPECTED_FAMILIES.map(family => {
+          const key = dataKey(family, symbol);
+          return [family, {
+            lastTradeAt: tradeBuffers.get(key)?.since(now() - RETENTION_MS).at(-1)?.ts ?? null,
+            lastBookAt: bookBuffers.get(key)?.since(now() - RETENTION_MS).at(-1)?.ts ?? null
+          }];
+        }))
+      },
       coverage,
       missingCoverage: coverage.filter(x => !x.healthy).map(x => x.family),
       windows,

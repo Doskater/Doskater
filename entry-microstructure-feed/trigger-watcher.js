@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CORE_SYMBOLS, normalizeSymbol } from './config.js';
+import {createCandidate,appendEntryEvent} from './entry-journal.js';
 import {
   getLocalServiceConfig,
   ensureRuntimeDependencies,
@@ -22,6 +23,7 @@ export function getWatcherConfig({ home = os.homedir(), env = process.env } = {}
     setupsFile: path.join(service.stateDir, 'watcher-setups.json'),
     pidFile: path.join(service.stateDir, 'watcher.json'),
     logFile: path.join(service.stateDir, 'watcher.log'),
+    journalFile: path.join(service.stateDir, 'entry-journal.jsonl'),
     watcherFile: path.join(BASE_DIR, 'trigger-watcher.js'),
     cwd: BASE_DIR,
     feedUrl: service.url,
@@ -122,6 +124,24 @@ export function evaluateSetup(rawSetup, snapshot, previousState = createSetupSta
   return { alert: false, state, reason: 'confirmation_recorded' };
 }
 
+
+export async function processSetupSnapshot(rawSetup,snapshot,previousState=createSetupState(),{
+  now=Date.now,writeCandidate,notify=sendMacNotification
+}={}) {
+  const setup=normalizeSetup(rawSetup);
+  const result=evaluateSetup(setup,snapshot,previousState,now());
+  if(!result.alert)return result;
+  const candidate=createCandidate(setup,snapshot,{now});
+  try { await writeCandidate(candidate); }
+  catch(error) {
+    return {alert:false,state:{...result.state,latched:false,lastConfirmationAt:null,confirmationCount:setup.confirmationsRequired-1},
+      reason:'candidate_write_failed',persistenceError:error?.message ?? 'journal_error'};
+  }
+  try {await notify(buildNotification(setup,snapshot));}
+  catch(error){return {...result,candidate,notificationError:error?.message ?? 'notification_error'};}
+  return {...result,candidate};
+}
+
 export async function readSetups({ config = getWatcherConfig(), fsImpl = fs } = {}) {
   try {
     const parsed = JSON.parse(await fsImpl.readFile(config.setupsFile, 'utf8'));
@@ -215,7 +235,7 @@ export function buildNotification(setup, snapshot) {
   const price = Number(snapshot.currentMid);
   const efficiency = setup.side === 'long' ? 'buy-efficient' : 'sell-efficient';
   return {
-    title: `${setup.symbol} ${setup.side.toUpperCase()} CONFIRMED`,
+    title: `${setup.symbol} ${setup.side.toUpperCase()} ENTRY_CANDIDATE`,
     message: `price ${Number.isFinite(price) ? price : '?'} | imbalance ${Number.isFinite(imbalance) ? `${imbalance >= 0 ? '+' : ''}${imbalance.toFixed(2)}` : '?'} | ${efficiency} | FULL`
   };
 }
@@ -298,12 +318,15 @@ export async function runWatcherDaemon({ config = getWatcherConfig() } = {}) {
           const prior = states.get(stateKey);
           const sig = signature(setup);
           const state = prior?.signature === sig ? prior.state : createSetupState();
-          const result = evaluateSetup(setup, snapshot, state, Date.now());
+          const result = await processSetupSnapshot(setup, snapshot, state, {
+            writeCandidate: candidate => appendEntryEvent({event:'ENTRY_CANDIDATE',timestamp:candidate.detectedAt,candidateId:candidate.candidateId,setupId:candidate.setupId,candidate}, {journalFile:config.journalFile})
+          });
           states.set(stateKey, { signature: sig, state: result.state });
+          if (result.persistenceError) await appendLog(config, {event:'candidate_write_failed',symbol:setup.symbol,message:result.persistenceError});
+          if (result.notificationError) await appendLog(config, {event:'notification_failed',symbol:setup.symbol,message:result.notificationError});
           if (result.alert) {
             const notification = buildNotification(setup, snapshot);
-            sendMacNotification(notification);
-            await appendLog(config, { event: 'trigger_confirmed', symbol: setup.symbol, side: setup.side, price: snapshot.currentMid, notification });
+            await appendLog(config, { event: 'trigger_confirmed', candidateId: result.candidate.candidateId, setupId: result.candidate.setupId, symbol: setup.symbol, side: setup.side, price: snapshot.currentMid, notification });
           }
         } catch (error) {
           await appendLog(config, { event: 'symbol_check_failed', symbol: setup.symbol, message: error?.message ?? 'error' });

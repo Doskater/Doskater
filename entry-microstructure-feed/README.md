@@ -173,7 +173,7 @@ Near a valid candidate entry zone, Entry Intelligence should read the local even
 ## Local trigger watcher
 
 The optional watcher is notification-only. It never places, changes, or cancels orders.
-It persists arbitrary coin setups under `~/Library/Application Support/entry-microstructure-feed/watcher-setups.json`, refreshes dynamic feed subscriptions while they are monitored, and emits a macOS notification only after the configured trigger and microstructure confirmation rules pass.
+It persists arbitrary coin setups under `~/Library/Application Support/entry-microstructure-feed/watcher-setups.json`, refreshes dynamic feed subscriptions while they are monitored, and emits a macOS notification only after the configured trigger and microstructure confirmation rules pass. LONG and SHORT setups for the same symbol may coexist as separate watcher levels.
 
 Default confirmation rules for a setup are:
 

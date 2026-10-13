@@ -141,7 +141,7 @@ async function writeSetups(rows, { config = getWatcherConfig(), fsImpl = fs } = 
 export async function upsertSetup(input, options = {}) {
   const setup = normalizeSetup(input);
   const rows = await readSetups(options);
-  const index = rows.findIndex(row => row.symbol === setup.symbol);
+  const index = rows.findIndex(row => row.symbol === setup.symbol && row.side === setup.side);
   if (index >= 0) rows[index] = setup;
   else rows.push(setup);
   await writeSetups(rows, options);
@@ -294,11 +294,12 @@ export async function runWatcherDaemon({ config = getWatcherConfig() } = {}) {
         try {
           const snapshot = await fetchSnapshot(config, setup.symbol);
           snapshot.currentMid = await resolveSnapshotPrice(snapshot, setup.symbol);
-          const prior = states.get(setup.symbol);
+          const stateKey = `${setup.symbol}:${setup.side}`;
+          const prior = states.get(stateKey);
           const sig = signature(setup);
           const state = prior?.signature === sig ? prior.state : createSetupState();
           const result = evaluateSetup(setup, snapshot, state, Date.now());
-          states.set(setup.symbol, { signature: sig, state: result.state });
+          states.set(stateKey, { signature: sig, state: result.state });
           if (result.alert) {
             const notification = buildNotification(setup, snapshot);
             sendMacNotification(notification);
@@ -308,8 +309,8 @@ export async function runWatcherDaemon({ config = getWatcherConfig() } = {}) {
           await appendLog(config, { event: 'symbol_check_failed', symbol: setup.symbol, message: error?.message ?? 'error' });
         }
       }
-      const active = new Set(setups.map(row => row.symbol));
-      for (const symbol of states.keys()) if (!active.has(symbol)) states.delete(symbol);
+      const active = new Set(setups.map(row => `${row.symbol}:${row.side}`));
+      for (const stateKey of states.keys()) if (!active.has(stateKey)) states.delete(stateKey);
     } catch (error) {
       await appendLog(config, { event: 'watcher_loop_failed', message: error?.message ?? 'error' });
     }

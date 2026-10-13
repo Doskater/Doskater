@@ -113,9 +113,10 @@ test('upsert and remove persist arbitrary future coin setups', async () => {
   };
   const config={stateDir:'/tmp/x',setupsFile:'/tmp/x/setups.json'};
   await mod.upsertSetup({symbol:'NEARUSDT',side:'long',triggerPrice:5}, {config,fsImpl});
+  await mod.upsertSetup({symbol:'NEARUSDT',side:'short',triggerPrice:4.9}, {config,fsImpl});
   await mod.upsertSetup({symbol:'STRKUSDT',side:'short',triggerPrice:0.11}, {config,fsImpl});
   let rows=await mod.readSetups({config,fsImpl});
-  assert.deepEqual(rows.map(x=>x.symbol),['NEARUSDT','STRKUSDT']);
+  assert.deepEqual(rows.map(x=>`${x.symbol}:${x.side}`),['NEARUSDT:long','NEARUSDT:short','STRKUSDT:short']);
   await mod.removeSetup('NEARUSDT',{config,fsImpl});
   rows=await mod.readSetups({config,fsImpl});
   assert.deepEqual(rows.map(x=>x.symbol),['STRKUSDT']);

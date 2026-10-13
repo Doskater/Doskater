@@ -26,14 +26,19 @@ export function createBinanceFeed({
   onLiquidation = () => {},
   onStatus = () => {},
   setTimeoutImpl = setTimeout,
-  clearTimeoutImpl = clearTimeout
+  clearTimeoutImpl = clearTimeout,
+  setIntervalImpl = setInterval,
+  clearIntervalImpl = clearInterval,
+  staleAfterMs = 30_000
 } = {}) {
   const watched = new Set();
   const sockets = new Map();
   const reconnectTimers = new Map();
   const attempts = new Map();
+  const lastMessage = new Map();
   const books = new Map();
   let requestId = 1;
+  let heartbeatTimer = null;
   let stopped = true;
 
   const now = () => typeof clock.now === 'function' ? clock.now() : Date.now();
@@ -91,9 +96,11 @@ export function createBinanceFeed({
     if (stopped) return;
     const socket = new WebSocketImpl(FAMILIES[family].wsUrl);
     sockets.set(family, socket);
+    lastMessage.set(family, now());
     onStatus({ venue: 'binance', market: family, state: 'connecting', ts: now() });
     socket.on('open', () => {
       attempts.set(family, 0);
+      lastMessage.set(family, now());
       onStatus({ venue: 'binance', market: family, state: 'connected', ts: now() });
       subscribeAll(family);
     });
@@ -190,6 +197,7 @@ export function createBinanceFeed({
   }
 
   function handleMessage(family, raw) {
+    lastMessage.set(family, now());
     let message;
     try {
       message = JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : String(raw));
@@ -222,15 +230,35 @@ export function createBinanceFeed({
     }
   }
 
+  function heartbeatTick() {
+    if (!watched.size) return;
+    const current = now();
+    for (const family of Object.keys(FAMILIES)) {
+      const socket = sockets.get(family);
+      if (!socket || socket.readyState !== 1) continue;
+      const age = current - (lastMessage.get(family) ?? current);
+      if (age <= staleAfterMs) continue;
+      for (const symbol of watched) {
+        familyState(family, symbol).book.invalidate('stale_stream');
+        emitBook(family, symbol, 'WARMING_UP');
+      }
+      logger.warn?.({ event: 'binance_stream_stale', family, ageMs: age });
+      try { socket.close(); } catch {}
+    }
+  }
+
   function start() {
     if (!stopped) return;
     stopped = false;
     connectFamily('spot');
     connectFamily('perp');
+    heartbeatTimer = setIntervalImpl(heartbeatTick, 5_000);
   }
 
   function stop() {
     stopped = true;
+    if (heartbeatTimer !== null) clearIntervalImpl(heartbeatTimer);
+    heartbeatTimer = null;
     for (const timer of reconnectTimers.values()) clearTimeoutImpl(timer);
     reconnectTimers.clear();
     for (const socket of sockets.values()) {
@@ -271,7 +299,7 @@ export function createBinanceFeed({
     }
     const bookStates = {};
     for (const [k, value] of books) bookStates[k] = value.book.health();
-    return { venue: 'binance', connection, watched: [...watched], books: bookStates };
+    return { venue: 'binance', connection, watched: [...watched], books: bookStates, lastMessage: Object.fromEntries(lastMessage) };
   }
 
   function setHandlers(next = {}) {

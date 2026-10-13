@@ -99,6 +99,40 @@ test('reconnect schedules backoff and resubscribes watched symbols', async () =>
   feed.stop();
 });
 
+test('stale Binance connection invalidates books and reconnects only that family', async () => {
+  FakeSocket.instances = [];
+  let now = 0;
+  const intervals = [];
+  const timers = [];
+  const states = [];
+  const feed = createBinanceFeed({
+    WebSocketImpl: FakeSocket,
+    fetchImpl: async () => jsonResponse({ lastUpdateId: 1, bids:[['100','1']], asks:[['101','1']] }),
+    clock: { now: () => now },
+    onBookState: x => states.push(x),
+    setIntervalImpl: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
+    clearIntervalImpl: () => {},
+    setTimeoutImpl: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
+    clearTimeoutImpl: () => {},
+    staleAfterMs: 30_000
+  });
+  feed.start();
+  FakeSocket.instances.forEach(s => s.open());
+  await feed.ensureSymbol('BTCUSDT');
+  const spot = FakeSocket.instances.find(s => s.url.includes('stream.binance'));
+  const perp = FakeSocket.instances.find(s => s.url.includes('fstream'));
+  spot.message({ e:'aggTrade', E:1, T:1, s:'BTCUSDT', p:'100', q:'1', m:false });
+  perp.message({ e:'aggTrade', E:1, T:1, s:'BTCUSDT', p:'100', q:'1', m:false });
+  await flush();
+  now = 31_000;
+  assert.ok(intervals.length > 0, 'expected Binance stale watchdog interval');
+  intervals.forEach(x => x.fn());
+  assert.ok(states.some(x => x.market === 'spot' && x.state === 'WARMING_UP'));
+  assert.ok(states.some(x => x.market === 'perp' && x.state === 'WARMING_UP'));
+  assert.ok(timers.length >= 2, 'expected reconnect timers for stale Binance families');
+  feed.stop();
+});
+
 test('allows collector to attach handlers after feed construction', async () => {
   FakeSocket.instances = [];
   const trades = [];

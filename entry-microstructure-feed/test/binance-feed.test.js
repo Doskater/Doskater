@@ -8,6 +8,7 @@ class FakeSocket extends EventEmitter {
   constructor(url) { super(); this.url = url; this.sent = []; this.readyState = 1; FakeSocket.instances.push(this); }
   send(value) { this.sent.push(JSON.parse(value)); }
   close() { this.readyState = 3; this.emit('close'); }
+  terminate() { this.terminated = true; this.readyState = 3; this.emit('close'); }
   open() { this.emit('open'); }
   message(payload) { this.emit('message', Buffer.from(JSON.stringify(payload))); }
 }
@@ -131,6 +132,16 @@ test('stale Binance connection invalidates books and reconnects only that family
   assert.ok(states.some(x => x.market === 'perp' && x.state === 'WARMING_UP'));
   assert.ok(timers.length >= 2, 'expected reconnect timers for stale Binance families');
   feed.stop();
+});
+
+test('stop force-terminates Binance sockets so shutdown cannot wait for close handshake', async () => {
+  FakeSocket.instances = [];
+  const feed = createBinanceFeed({ WebSocketImpl: FakeSocket, fetchImpl: async () => jsonResponse({ lastUpdateId: 1, bids:[['100','1']], asks:[['101','1']] }) });
+  feed.start();
+  FakeSocket.instances.forEach(s => s.open());
+  await feed.ensureSymbol('BTCUSDT');
+  feed.stop();
+  assert.ok(FakeSocket.instances.every(s => s.terminated === true));
 });
 
 test('allows collector to attach handlers after feed construction', async () => {

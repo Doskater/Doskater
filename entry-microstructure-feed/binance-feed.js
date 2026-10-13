@@ -262,7 +262,10 @@ export function createBinanceFeed({
     for (const timer of reconnectTimers.values()) clearTimeoutImpl(timer);
     reconnectTimers.clear();
     for (const socket of sockets.values()) {
-      try { socket.close(); } catch {}
+      try {
+        if (typeof socket.terminate === 'function') socket.terminate();
+        else socket.close();
+      } catch {}
     }
     sockets.clear();
   }

@@ -8,6 +8,7 @@ class FakeSocket extends EventEmitter {
   constructor(url) { super(); this.url=url; this.sent=[]; this.readyState=1; FakeSocket.instances.push(this); }
   send(v) { this.sent.push(JSON.parse(v)); }
   close() { if (this.readyState === 3) return; this.readyState=3; this.emit('close'); }
+  terminate() { if (this.readyState === 3) return; this.terminated=true; this.readyState=3; this.emit('close'); }
   open() { this.readyState=1; this.emit('open'); }
   message(v) { this.emit('message', Buffer.from(JSON.stringify(v))); }
 }
@@ -84,6 +85,16 @@ test('stale connection invalidates books, reconnects, and requires fresh snapsho
   replacement.message({ topic:'orderbook.50.SOLUSDT', type:'snapshot', ts:31_100, cts:31_099, data:{ s:'SOLUSDT',b:[['100','1']],a:[['101','1']],u:1,seq:5 } });
   await flush(); assert.equal(states.filter(x=>x.market==='spot').at(-1).state,'healthy');
   feed.stop();
+});
+
+test('stop force-terminates Bybit sockets so shutdown cannot wait for close handshake', async () => {
+  FakeSocket.instances=[];
+  const feed=createBybitFeed({ WebSocketImpl:FakeSocket });
+  feed.start();
+  FakeSocket.instances.forEach(s=>s.open());
+  feed.ensureSymbol('BTCUSDT');
+  feed.stop();
+  assert.ok(FakeSocket.instances.every(s=>s.terminated === true));
 });
 
 test('allows collector to attach handlers after feed construction', async () => {

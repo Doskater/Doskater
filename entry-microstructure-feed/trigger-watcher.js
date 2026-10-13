@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { CORE_SYMBOLS, normalizeSymbol } from './config.js';
 import {createCandidate,appendEntryEvent} from './entry-journal.js';
 import {
@@ -155,7 +156,13 @@ export async function readSetups({ config = getWatcherConfig(), fsImpl = fs } = 
 
 async function writeSetups(rows, { config = getWatcherConfig(), fsImpl = fs } = {}) {
   await fsImpl.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
-  await fsImpl.writeFile(config.setupsFile, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600 });
+  const temporary=config.setupsFile+'.'+randomUUID()+'.tmp';
+  try {
+    await fsImpl.writeFile(temporary, `${JSON.stringify(rows, null, 2)}\n`, { mode: 0o600, flag:'wx' });
+    await fsImpl.rename(temporary,config.setupsFile);
+  }finally {
+    try {await fsImpl.unlink(temporary);}catch(error){if(error?.code!=='ENOENT')throw error;}
+  }
 }
 
 export async function upsertSetup(input, options = {}) {
@@ -194,7 +201,7 @@ export async function syncSetups(inputs, options = {}) {
     else if (!same(beforeMap.get(id), row)) updated.push(id);
   }
   for (const id of beforeMap.keys()) if (!nextMap.has(id)) removed.push(id);
-  await writeSetups(next, options);
+  if(added.length || updated.length || removed.length)await writeSetups(next, options);
   return { setups: next, changes: { added, updated, removed } };
 }
 

@@ -1,6 +1,7 @@
 import {buildTerminalCommand} from './entry-command.js';
 import {normalizeSymbol} from './config.js';
 import {positiveNumber,units,quantize,quantizeMarketPrice,sizeFor} from './entry-numbers.js';
+import {timeframeMs} from './mtf-structure.js';
 
 export function evaluateFocusedEntry(candidate,snapshot,context,{now=Date.now,policy={}}={}) {
   const checkedAt=now();
@@ -51,6 +52,15 @@ export function evaluateFocusedEntry(candidate,snapshot,context,{now=Date.now,po
   if(context.structure==='broken')return invalid('structure_broken');
   if(context.thesisValid===false)return invalid('thesis_revoked');
   if(invalidation!==null && (long?price<=invalidation:price>=invalidation))return invalid('invalidation_crossed');
+  if(context.mtf!==undefined) {
+    const mtfReason=mtfContextReason(candidate,snapshot,context,checkedAt,limits);
+    if(mtfReason)return wait(mtfReason);
+    if(context.mtf.structureValid===false)return invalid('mtf_structure_broken');
+    if(context.mtf.rawInvalidationPrice!==undefined && (long?price<=context.mtf.rawInvalidationPrice:
+      price>=context.mtf.rawInvalidationPrice))return invalid('mtf_raw_invalidation_crossed');
+    if(context.mtf.setupConfirmed!==true)return wait('mtf_setup_pending');
+    if(context.mtf.lowerTrigger.confirmed!==true)return wait('mtf_lower_trigger_pending');
+  }
   const dataReason=liveDataReason(candidate,snapshot,context,checkedAt,limits);
   if(dataReason)return wait(dataReason);
   if(context.structure!=='valid' || context.thesisValid!==true || context.marketRiskAllowed!==true ||
@@ -76,6 +86,44 @@ function entryPolicy(overrides) {
 }
 function timestampFresh(ts,now,maxAge) {
   return Number.isSafeInteger(ts) && ts>=0 && ts<=now && now-ts<=maxAge;
+}
+function mtfContextReason(candidate,snapshot,context,now,policy) {
+  const m=context.mtf;
+  if(!m || m.schemaVersion!==1 || m.symbol!==candidate.symbol || m.side!==candidate.side ||
+    m.setupId!==candidate.setupId || m.triggerPrice!==candidate.triggerPrice ||
+    typeof m.scenarioId!=='string'||!m.scenarioId || m.source!==snapshot.primaryFamily ||
+    m.asOf!==context.asOf || !timestampFresh(m.asOf,now,policy.maxContextAgeMs) ||
+    !['trend','range','compression'].includes(m.regime) || m.coverage!==1 ||
+    !Number.isFinite(m.confidence)||m.confidence<.35||m.confidence>1 ||
+    typeof m.structureValid!=='boolean' || typeof m.setupConfirmed!=='boolean' ||
+    m.invalidationPrice!==context.invalidationPrice || JSON.stringify(m.targets)!==JSON.stringify(context.targets) ||
+    m.rawInvalidationPrice!==undefined&&(!Number.isFinite(m.rawInvalidationPrice)||m.rawInvalidationPrice<=0) ||
+    !Number.isFinite(m.zone?.lower)||!Number.isFinite(m.zone?.upper)||m.zone.lower<=0||m.zone.upper<=m.zone.lower)
+    return 'mtf_context_invalid';
+  try {
+    timeframeMs(m.timeframe);
+    const t=m.lowerTrigger;
+    if(!t || typeof t.confirmed!=='boolean')return 'mtf_lower_trigger_missing';
+    if(!t.confirmed)return null;
+    const interval=timeframeMs(t.timeframe);
+    if(!Array.isArray(m.entryTimeframes)||!m.entryTimeframes.includes(t.timeframe)||interval>timeframeMs(m.timeframe))
+      return 'mtf_entry_role_invalid';
+    const maxAge=Math.min(policy.maxContextAgeMs,interval*2);
+    if(!timestampFresh(t.confirmedAt,now,maxAge)||t.confirmedAt>m.asOf)return 'mtf_lower_trigger_stale';
+    const c=t.candle,p=t.previous,long=candidate.side==='long';
+    if(!c||!p||!Number.isFinite(t.atr)||t.atr<=0||!Number.isFinite(t.price)||t.price<=0 ||
+      ![c.high,c.low,c.close,p.high,p.low].every(x=>Number.isFinite(x)&&x>0) ||
+      c.low>c.close||c.high<c.close||p.low>p.high || c.close!==t.price || c.closeTime!==t.confirmedAt ||
+      !Number.isSafeInteger(c.time)||c.closeTime-c.time!==interval || p.closeTime!==c.time ||
+      !Number.isSafeInteger(p.time)||p.closeTime-p.time!==interval ||
+      !Number.isSafeInteger(m.setupConfirmedAt)||m.setupConfirmedAt>c.time||m.setupConfirmedAt>m.asOf ||
+      (long?c.close<=p.high||c.close<=m.triggerPrice:c.close>=p.low||c.close>=m.triggerPrice) ||
+      c.low>m.zone.upper+t.atr||c.high<m.zone.lower-t.atr ||
+      (long?c.close>m.zone.upper+2*t.atr:c.close<m.zone.lower-2*t.atr))return 'mtf_lower_evidence_invalid';
+    const price=snapshot.currentMid;
+    if(long?price>m.zone.upper+2*t.atr:price<m.zone.lower-2*t.atr)return 'mtf_live_price_outside_zone';
+  }catch{return 'mtf_lower_trigger_invalid';}
+  return null;
 }
 function priceFreshnessReason(snapshot, context, now, policy) {
   if (!timestampFresh(context.asOf, now, policy.maxContextAgeMs)) return 'context_stale_or_missing';
@@ -144,6 +192,8 @@ export async function runFocusedRevalidation(candidate,context,{
     const events=live.freshness.eventsByFamily[live.primaryFamily];
     result.expiresAt=Math.min(live.asOf+limits.maxSnapshotAgeMs,events.lastTradeAt+limits.maxSnapshotAgeMs,
       events.lastBookAt+limits.maxSnapshotAgeMs,ctx.asOf+limits.maxContextAgeMs);
+    if(ctx.mtf)result.expiresAt=Math.min(result.expiresAt,ctx.mtf.lowerTrigger.confirmedAt+
+      Math.min(limits.maxContextAgeMs,timeframeMs(ctx.mtf.lowerTrigger.timeframe)*2));
     result.decision=result.eligibleDecision;
     result.reason=result.decision==='ENTER_NOW'?'rr_full':'rr_reduced';
     result.terminalCommand=buildTerminalCommand(result);

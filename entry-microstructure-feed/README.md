@@ -268,3 +268,75 @@ For ENTER only, `terminalCommand` is a complete shell-quoted string. Copying and
 All decisions append `REVALIDATION_DECISION` records with candidate/setup IDs, current RR and reason. Journal write failures prevent ENTER output. Pipeline code never imports the execution client for running requests; only the emitted command refers to it.
 
 Delayed SHORT example: candidate 4.93, fresh stop 4.98 and first target 4.78. Live price 4.91 gives risk 0.07, reward 0.13, RR ≈ 1.857 → ENTER_REDUCED if all gates pass. Live 4.88 gives RR 1 → WAIT_RETEST; live 4.99 crosses invalidation → INVALIDATED.
+# Universal multi-timeframe structure (v3)
+
+The pure engine analyzes any supported USDT symbol without coin-specific levels.
+It produces confirmed HH/HL/LH/LL pivots, support/resistance zones, three-touch
+ascending/descending boundaries, trend/range/compression, seven scenario types,
+weighted timeframe agreement, confidence and lower-timeframe timing evidence.
+Pivots carry confirmation timestamps; open candles are ignored. Malformed, missing,
+gapped or stale candles produce PARTIAL/DEGRADED analysis and never entry approval.
+
+```sh
+npm run structure:analyze -- --symbols NEARUSDT,ETHUSDT --source binance:spot --sync-watchers
+```
+
+Source must match the microstructure snapshot primaryFamily. The public adapter uses
+GET candle endpoints only, without account credentials. It supports binance:spot,
+binance:perp, bybit:spot and bybit:linear. Roles default to context 1D/4h/1h,
+setup 1h/30m/15m and entry 15m/5m/1m; configure them with:
+
+```sh
+npm run structure:analyze -- --symbols NEARUSDT --roles '{"context":["4h","1h"],"setup":["1h","15m"],"entry":["15m","5m","1m"]}'
+```
+
+Overlapping roles count a timeframe once. Analysis always returns WAIT; the existing
+focused live gate is required for ENTER. An adverse flow snapshot delays timing while
+valid structure remains intact. Full-size R:R >=2 and reduced-size R:R >=1.5, expiry,
+quantization, risk permission and journaling protections still apply.
+
+`--sync-watchers` writes only the notification configuration and its reason/evidence
+log. It does not start/stop services, send notifications or access execution APIs.
+Full pipeline runs must include this flag per PIPELINE_PROMPT.md. Without `--symbols`,
+core symbols and existing watcher symbols are analyzed. Partial/unknown analyses
+preserve existing watchers; complete analyses replace stale scenarios on both sides.
+Levels are refreshed each run, including projected sloping boundaries. The existing
+watcher daemon monitors the resulting levels with its original hold/flow/latch rules.
+
+After a candidate alert, provide independently approved risk/sizing fields in an
+execution JSON file (`marketRiskAllowed`, `qty`, `qtyStep`, `tickSize`, optional
+`positionIdx`, `reducedSizeFactor`). Generate a current MTF context with:
+
+```sh
+npm run structure:analyze -- --symbols NEARUSDT --source binance:spot --candidate-id <ID> --execution <approved-risk-sizing.json>
+```
+
+Save the response's `context` object to a file and use the existing
+`npm run entry:revalidate -- --candidate-id <ID> --context <context.json>` path.
+Changed watcher identities cannot reuse an old candidate. MTF context cannot have
+its stop, targets, source, setup or trigger overwritten by the sizing document.
+Legacy contexts remain compatible for existing callers; full v3 pipeline runs require
+MTF evidence. Neither analysis nor revalidation executes generated commands. Final
+actionable entries use one Terminal commands block with one existing safe DEMO command
+per entry; WAIT/NO TRADE has no command.
+
+For deterministic offline analysis, `--input <file.json>` accepts
+`{symbols, source, asOf, roles, framesBySymbol, options}`. Each frame is
+`{symbol, source, candles:[{time, open, high, low, close, volume}]}`; `time` is candle
+open time in milliseconds. Optional engine options: `left`, `right` (default 2/2),
+`minCandles` (20), ATR multipliers `zoneAtr` (.35), `equalAtr` (.10), `boundaryAtr` (.35).
+Canonical timeframe keys are case-insensitive. Offline source failures never fall
+back to live fetching. An offline output alone cannot approve an order.
+
+Limitations: confirmed pivots lag; watcher boundaries are discretized between full
+pipeline refreshes; confidence is an uncalibrated heuristic. Missing entry frames
+delay entries. Timing requires a lower candle opening after setup confirmation;
+recent setup events remain available for eight closed setup candles to support
+overlapping roles. After a structural break, pre-break context is explicitly labeled
+until the new regime becomes identifiable. Targets distinguish confirmed zones from projected 2.5R
+targets; projections need independent market review. Candle analysis does not replace
+macro, derivatives, account and instrument checks. Public source availability may
+vary by network/region. No dependency was added.
+
+Public API formats: [Binance futures klines](https://developers.binance.com/docs/derivatives/usds-margined-futures/market-data/rest-api/Kline-Candlestick-Data),
+[Bybit klines](https://bybit-exchange.github.io/docs/v5/market/kline).

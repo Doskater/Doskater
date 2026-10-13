@@ -109,7 +109,7 @@ test('upsert and remove persist arbitrary future coin setups', async () => {
   const fsImpl={
     mkdir:async()=>{},
     readFile:async()=>{ if(!stored){const e=new Error('missing');e.code='ENOENT';throw e;} return stored; },
-    writeFile:async(_path,value)=>{stored=String(value);}
+    writeFile:async(_path,value)=>{stored=String(value);},rename:async()=>{},unlink:async()=>{}
   };
   const config={stateDir:'/tmp/x',setupsFile:'/tmp/x/setups.json'};
   await mod.upsertSetup({symbol:'NEARUSDT',side:'long',triggerPrice:5}, {config,fsImpl});
@@ -187,7 +187,7 @@ test('pipeline watcher sync atomically replaces stale levels using conservative 
   const fsImpl={
     mkdir:async()=>{},
     readFile:async()=>stored,
-    writeFile:async(_path,value)=>{stored=String(value);}
+    writeFile:async(_path,value)=>{stored=String(value);},rename:async()=>{},unlink:async()=>{}
   };
   const config={stateDir:'/tmp/x',setupsFile:'/tmp/x/setups.json'};
   const result=await mod.syncSetups([

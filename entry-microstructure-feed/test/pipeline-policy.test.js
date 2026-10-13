@@ -18,4 +18,8 @@ test('canonical pipeline prompt pre-authorizes watcher sync without order execut
   assert.match(text,/one command per approved actionable entry/);
   assert.match(text,/If there are no approved actionable entries, do not emit the Terminal commands block/);
   assert.match(text,/must remain text and must not be executed automatically/);
+  assert.match(text,/market regime -> multi-timeframe structure -> scenario classification/);
+  assert.match(text,/Microstructure is an execution gate\/veto/);
+  assert.match(text,/Do not downgrade to a legacy hand-written/);
+  assert.match(text,/structure:analyze/);
 });

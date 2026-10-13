@@ -8,7 +8,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "check": "for f in config.js ring-buffer.js normalizers.js order-book.js features.js watchlist.js binance-feed.js bybit-feed.js collector.js logger.js server.js local-service.js trigger-watcher.js entry-journal.js entry-numbers.js entry-command.js focused-revalidation.js scripts/revalidate-entry.js scripts/smoke.js; do node --check \"$f\" || exit 1; done",
+    "check": "for f in config.js ring-buffer.js normalizers.js order-book.js features.js watchlist.js binance-feed.js bybit-feed.js collector.js logger.js server.js local-service.js trigger-watcher.js entry-journal.js entry-numbers.js entry-command.js focused-revalidation.js mtf-structure.js mtf-scenarios.js mtf-pipeline.js scripts/analyze-structure.js scripts/revalidate-entry.js scripts/smoke.js; do node --check \"$f\" || exit 1; done",
     "start": "node server.js",
     "smoke": "node scripts/smoke.js",
     "local:start": "node local-service.js start",
@@ -21,7 +21,8 @@
     "watcher:remove": "node trigger-watcher.js remove",
     "watcher:stop": "node trigger-watcher.js stop",
     "entry:revalidate": "node scripts/revalidate-entry.js",
-    "watcher:sync": "node trigger-watcher.js sync"
+    "watcher:sync": "node trigger-watcher.js sync",
+    "structure:analyze": "node scripts/analyze-structure.js"
   },
   "dependencies": {
     "ws": "^8.18.3"

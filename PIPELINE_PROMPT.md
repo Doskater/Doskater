@@ -1,4 +1,4 @@
-# Trading Pipeline v2.9 — Canonical Operating Prompt
+# Trading Pipeline v3.0 — Canonical Operating Prompt
 
 Use this file as the operating policy for every full trading-pipeline run.
 
@@ -8,6 +8,60 @@ Use this file as the operating policy for every full trading-pipeline run.
 - Run fresh market, derivatives, macro/event-risk, local microstructure and journal/outcome checks.
 - Label the run `FULL`, `PARTIAL` or `DEGRADED` according to source availability.
 - Final analytical result is `ENTER`, `WAIT` or `NO TRADE`.
+
+## Universal multi-timeframe structure and decision hierarchy
+
+Use the same structure engine for every monitored USDT symbol, with no BTC-specific
+price levels or directional rules. Acquire fresh closed candles from one explicit
+venue/market family, retaining symbol/source provenance. Default timeframe roles:
+context 1D/4H/1H; setup 1H/30m/15m; entry 15m/5m/1m. Roles are configurable and may
+overlap; agreement counts each physical timeframe once.
+
+Run structure analysis and notification-only watcher auto-sync on every full run:
+
+```sh
+cd /Users/feliks/Projects/trading-data-chatgpt-proxy/entry-microstructure-feed
+npm run structure:analyze -- --symbols <monitored-symbols-CSV> --source <venue:market> --sync-watchers
+```
+
+When no symbols are supplied, the CLI analyzes core coins plus existing watcher coins.
+Choose the candle source matching the event feed's primaryFamily. Supported families:
+binance:spot, binance:perp, bybit:spot, bybit:linear.
+
+Follow this decision hierarchy strictly:
+
+market regime -> multi-timeframe structure -> scenario classification -> candidate
+zone -> lower-timeframe trigger -> event-level microstructure confirmation -> R:R ->
+ENTER/WAIT.
+
+Read regime (trend/range/compression), HH/HL/LH/LL, confirmed pivots, horizontal zones,
+valid ascending support/descending resistance, and scenario evidence from the engine.
+Three distinct confirmed touches are required for a valid sloped boundary; two-point
+hypotheses remain provisional. Report agreement votes, coverage, countertrend status,
+scenario confidence and projected versus confirmed target provenance. Confidence is a
+heuristic score, not a probability of profit.
+
+Scenario types: trend continuation, pullback, reclaim, breakout, failed breakout,
+reversal, range mean reversion. Pending structural breakout watchers do not establish
+entry eligibility. Analysis itself always returns WAIT pending the full live gate.
+
+Microstructure is an execution gate/veto, never the source of global direction. One
+adverse snapshot delays timing with WAIT_RETEST while the structural thesis remains
+valid. INVALIDATED requires relevant fresh structural invalidation or an explicit
+thesis revocation. Missing/stale candles, absent lower triggers, inconsistent source
+identity, or unresolved market risk cannot approve an entry.
+
+After an alert, rerun fresh structure and the full pipeline. Bind the current structural
+context to the candidate's exact normalized watcher setupId. Pass the generated
+context (including MTF evidence, approved sizing and market-risk check) through the
+existing focused revalidation final live gate. Do not downgrade to a legacy hand-written
+context to bypass missing MTF evidence. If watcher identity changed, refresh monitoring
+and wait for a new candidate rather than reusing the old alert.
+
+Keep full-size R:R >=2 and reduced-size R:R >=1.5, current tick/quantity quantization,
+live snapshot freshness, journaling and command expiry protections. Confirm macro,
+derivatives, account sizing and instrument constraints through the existing full
+pipeline; structure analysis does not supply those approvals.
 
 ## Watcher auto-sync — no confirmation required
 

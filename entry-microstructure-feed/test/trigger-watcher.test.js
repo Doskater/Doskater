@@ -155,7 +155,7 @@ test('subscription refresh cadence is minutes, not every watcher poll', async ()
   assert.equal(mod.shouldRefreshSubscriptions(1_000,301_000,300_000),true);
 });
 
-test('ENTRY_CANDIDATE notification uses green visual marker and Russian voice alert', async () => {
+test('ENTRY_CANDIDATE notification plays motif, pauses, then speaks with Russian voice', async () => {
   const mod=await loadModule(); assert.ok(mod);
   const built=mod.buildNotification(
     {symbol:'BTCUSDT',side:'long'},
@@ -163,13 +163,24 @@ test('ENTRY_CANDIDATE notification uses green visual marker and Russian voice al
   );
   assert.match(built.title,/^🟢 BTCUSDT LONG/);
 
-  const calls=[];
-  const spawnImpl=(cmd,args,options)=>{ calls.push({cmd,args,options}); return {unref(){}}; };
-  const result=mod.sendMacNotification(built,{spawnImpl});
+  const calls=[]; let closeHandler; let pauseMs;
+  const spawnImpl=(cmd,args,options)=>{
+    calls.push({cmd,args,options});
+    return {unref(){},once(event,handler){ if(cmd==='/usr/bin/afplay' && event==='close') closeHandler=handler; }};
+  };
+  const setTimeoutImpl=(fn,ms)=>{ pauseMs=ms; fn(); };
+  const result=mod.sendMacNotification(built,{spawnImpl,setTimeoutImpl});
   assert.deepEqual(result,built);
   assert.equal(calls.length,2);
   assert.equal(calls[0].cmd,'/usr/bin/osascript');
-  assert.equal(calls[1].cmd,'/usr/bin/say');
-  assert.deepEqual(calls[1].args,['-v','Milena','Найдены новые сигналы']);
-  assert.equal(calls[1].options.detached,true);
+  assert.equal(calls[1].cmd,'/usr/bin/afplay');
+  assert.match(calls[1].args[0],/assets\/watcher-entry-candidate\.wav$/);
+  assert.equal(typeof closeHandler,'function');
+
+  closeHandler(0);
+  assert.equal(pauseMs,300);
+  assert.equal(calls.length,3);
+  assert.equal(calls[2].cmd,'/usr/bin/say');
+  assert.deepEqual(calls[2].args,['-v','Milena','Найдены новые сигналы']);
+  assert.equal(calls[2].options.detached,true);
 });

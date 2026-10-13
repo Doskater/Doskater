@@ -240,13 +240,26 @@ export function buildNotification(setup, snapshot) {
   };
 }
 
-export function sendMacNotification(notification, { spawnImpl = spawn } = {}) {
+export function sendMacNotification(notification, { spawnImpl = spawn, setTimeoutImpl = setTimeout } = {}) {
   const script = `display notification ${appleScriptString(notification.message)} with title ${appleScriptString(notification.title)}`;
   const options = { stdio: 'ignore', detached: true };
   const notificationChild = spawnImpl('/usr/bin/osascript', ['-e', script], options);
   notificationChild.unref?.();
-  const voiceChild = spawnImpl('/usr/bin/say', ['-v', 'Milena', 'Найдены новые сигналы'], options);
-  voiceChild.unref?.();
+
+  const soundFile = path.join(BASE_DIR, 'assets', 'watcher-entry-candidate.wav');
+  const soundChild = spawnImpl('/usr/bin/afplay', [soundFile], options);
+  soundChild.unref?.();
+  let voiceQueued = false;
+  const queueVoice = () => {
+    if (voiceQueued) return;
+    voiceQueued = true;
+    setTimeoutImpl(() => {
+      const voiceChild = spawnImpl('/usr/bin/say', ['-v', 'Milena', 'Найдены новые сигналы'], options);
+      voiceChild.unref?.();
+    }, 300);
+  };
+  soundChild.once?.('close', queueVoice);
+  soundChild.once?.('error', queueVoice);
   return notification;
 }
 

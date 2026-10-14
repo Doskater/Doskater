@@ -32,7 +32,7 @@ test('createApp wires snapshot-backed market_universe when REST-style clients ar
 });
 
 test('createApp wires historical_market_data when Bybit kline method exists', async () => {
-  const clock = { now: () => 10_000 };
+  const clock = { now: () => 36_000_000 };
   const bybit = {
     async listLinearInstruments() { return [{ symbol:'BTCUSDT', launchTime:'1' }]; },
     async listSpotInstruments() { return []; },

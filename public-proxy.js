@@ -25,6 +25,9 @@ export function createProxyServer({
   upstreamUrl = process.env.UPSTREAM_MCP_URL,
   token = process.env.UPSTREAM_BEARER_TOKEN,
   fetchImpl = fetch,
+  retryDelayMs = 1500,
+  upstreamTimeoutMs = 25000,
+  logger = console,
   rateLimitMax = 120,
   rateLimitWindowMs = 60_000,
   clock = Date
@@ -68,15 +71,33 @@ export function createProxyServer({
     if(!withinRateLimit(req)) return sendJson(res,429,rpcError(id,-32000,'rate_limit_exceeded'),{'retry-after':'60'});
     if(!upstreamUrl||!token) return sendJson(res,503,rpcError(id,-32603,'upstream_not_configured'));
 
-    let upstream;
-    try {
-      upstream=await fetchImpl(upstreamUrl,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json','mcp-protocol-version':MODERN_PROTOCOL,'user-agent':'Trading-Data-ChatGPT-ReadOnly-Proxy/2.0'},body:JSON.stringify(message)});
-    } catch {
-      return sendJson(res,502,rpcError(id,-32603,'upstream_unavailable'));
+    let upstream, payload;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        upstream = await fetchImpl(upstreamUrl, {
+          method:'POST', signal:AbortSignal.timeout(upstreamTimeoutMs),
+          headers:{authorization:`Bearer ${token}`,'content-type':'application/json',accept:'application/json','mcp-protocol-version':MODERN_PROTOCOL,'user-agent':'Trading-Data-ChatGPT-ReadOnly-Proxy/2.1'},
+          body:JSON.stringify(message)
+        });
+        const transient = [429,502,503,504].includes(upstream.status);
+        if (transient && attempt < 2) {
+          await upstream.body?.cancel();
+          await new Promise(resolve=>setTimeout(resolve,retryDelayMs));
+          continue;
+        }
+        try { payload = await upstream.json(); }
+        catch {
+          logger.warn?.({event:'upstream_non_json',status:upstream.status,tool});
+          return sendJson(res,502,rpcError(id,-32603,transient?'upstream_temporarily_unavailable':'upstream_protocol_error'));
+        }
+        break;
+      } catch (error) {
+        logger.warn?.({event:'upstream_fetch_failed',tool,attempt:attempt+1,error:error.name});
+        if (error.name === 'TimeoutError' || error.name === 'AbortError') return sendJson(res,504,rpcError(id,-32603,'upstream_timeout'));
+        if (attempt === 2) return sendJson(res,502,rpcError(id,-32603,'upstream_unavailable'));
+        await new Promise(resolve=>setTimeout(resolve,retryDelayMs));
+      }
     }
-    let payload;
-    try { payload=await upstream.json(); }
-    catch { return sendJson(res,502,rpcError(id,-32603,'upstream_protocol_error')); }
     if(payload?.result?.structuredContent){
       try { assertNeutralPayload(payload.result.structuredContent); }
       catch { return sendJson(res,502,rpcError(id,-32603,'neutral_payload_violation')); }

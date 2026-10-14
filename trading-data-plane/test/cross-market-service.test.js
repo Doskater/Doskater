@@ -4,10 +4,10 @@ import { createSnapshotStore } from '../snapshot-store.js';
 import { createCrossMarketService } from '../services/cross-market-service.js';
 
 function setup() {
-  const clock = { now:() => 10_000 };
+  const clock = { now:() => 36_000_000 };
   const store = createSnapshotStore({ clock });
   const snap = store.create({
-    dataCutoff:10_000,
+    dataCutoff:36_000_000,
     universe:[
       {symbol:'BTCUSDT',bybitSpot:true,binanceSpot:true,binancePerp:true},
       {symbol:'ONLYUSDT',bybitSpot:false,binanceSpot:false,binancePerp:false}
@@ -57,16 +57,16 @@ test('history mode caps every venue request at snapshot cutoff', async () => {
   const { store, snap } = setup();
   const ends = [];
   const bybit = {
-    async getKlines({ category, endMs }) { ends.push([`bybit:${category}`, endMs]); return [['9000','1','1','1',category==='spot'?'100':'101','1','1']]; }
+    async getKlines({ category, endMs }) { ends.push([`bybit:${category}`, endMs]); return [['32400000','1','1','1',category==='spot'?'100':'101','1','1']]; }
   };
   const binance = {
-    async getSpotKlines({ endMs }) { ends.push(['binance:spot',endMs]); return [[9000,'1','1','1','99','1']]; },
-    async getFuturesKlines({ endMs }) { ends.push(['binance:perp',endMs]); return [[9000,'1','1','1','102','1']]; }
+    async getSpotKlines({ endMs }) { ends.push(['binance:spot',endMs]); return [[32400000,'1','1','1','99','1']]; },
+    async getFuturesKlines({ endMs }) { ends.push(['binance:perp',endMs]); return [[32400000,'1','1','1','102','1']]; }
   };
   const service = createCrossMarketService({ bybit, binance, snapshotStore:store });
-  const out = await service.getCrossMarketData({ snapshotId:snap.snapshotId, symbols:['BTCUSDT'], mode:'history', timeframe:'1h', startMs:8000, endMs:99_999 });
-  assert.ok(ends.every(([,end]) => end <= 10_000));
-  const row = out.rows.find(x => x.timestamp === 9000);
+  const out = await service.getCrossMarketData({ snapshotId:snap.snapshotId, symbols:['BTCUSDT'], mode:'history', timeframe:'1h', startMs:28800000, endMs:359_996_400 });
+  assert.ok(ends.every(([,end]) => end <= 36_000_000));
+  const row = out.rows.find(x => x.timestamp === 32400000);
   assert.equal(row.bybitPerpPrice, 101);
   assert.equal(row.bybitSpotPrice, 100);
   assert.equal(row.binanceSpotPrice, 99);
@@ -74,28 +74,28 @@ test('history mode caps every venue request at snapshot cutoff', async () => {
 });
 
 test('history mode paginates cached synchronized rows with deterministic cursor', async () => {
-  const store=createSnapshotStore({clock:{now:()=>10000}});
-  const snap=store.create({dataCutoff:10000,universe:[{symbol:'BTCUSDT',bybitSpot:false,binanceSpot:false,binancePerp:false}]});
+  const store=createSnapshotStore({clock:{now:()=>36000000}});
+  const snap=store.create({dataCutoff:36000000,universe:[{symbol:'BTCUSDT',bybitSpot:false,binanceSpot:false,binancePerp:false}]});
   let calls=0;
-  const bybit={async getKlines(){calls++;return [['9000','1','1','1','1'],['8000','1','1','1','1'],['7000','1','1','1','1']];}};
+  const bybit={async getKlines(){calls++;return [['32400000','1','1','1','1'],['28800000','1','1','1','1'],['25200000','1','1','1','1']];}};
   const service=createCrossMarketService({bybit,binance:{},snapshotStore:store});
-  const first=await service.getCrossMarketData({snapshotId:snap.snapshotId,symbols:['BTCUSDT'],mode:'history',timeframe:'1h',startMs:7000,endMs:9000,maxRows:2});
+  const first=await service.getCrossMarketData({snapshotId:snap.snapshotId,symbols:['BTCUSDT'],mode:'history',timeframe:'1h',startMs:25200000,endMs:36000000,maxRows:2});
   assert.equal(first.rows.length,2);
   assert.ok(first.nextCursor);
   const callsAfterFirst=calls;
-  const second=await service.getCrossMarketData({snapshotId:snap.snapshotId,symbols:['BTCUSDT'],mode:'history',timeframe:'1h',startMs:7000,endMs:9000,maxRows:2,cursor:first.nextCursor});
+  const second=await service.getCrossMarketData({snapshotId:snap.snapshotId,symbols:['BTCUSDT'],mode:'history',timeframe:'1h',startMs:25200000,endMs:36000000,maxRows:2,cursor:first.nextCursor});
   assert.equal(second.rows.length,1);
   assert.equal(new Set([...first.rows,...second.rows].map(x=>x.timestamp)).size,3);
   assert.equal(calls,callsAfterFirst);
 });
 
 test('history mode degrades failed reference venue instead of failing whole request', async () => {
-  const store=createSnapshotStore({clock:{now:()=>10000}});
-  const snap=store.create({dataCutoff:10000,universe:[{symbol:'BTCUSDT',bybitSpot:false,binanceSpot:true,binancePerp:false}]});
-  const bybit={async getKlines(){return [['9000','1','1','1','101']];}};
+  const store=createSnapshotStore({clock:{now:()=>36000000}});
+  const snap=store.create({dataCutoff:36000000,universe:[{symbol:'BTCUSDT',bybitSpot:false,binanceSpot:true,binancePerp:false}]});
+  const bybit={async getKlines(){return [['32400000','1','1','1','101']];}};
   const binance={async getSpotKlines(){throw new Error('binance_down');}};
   const service=createCrossMarketService({bybit,binance,snapshotStore:store});
-  const out=await service.getCrossMarketData({snapshotId:snap.snapshotId,symbols:['BTCUSDT'],mode:'history',timeframe:'1h',startMs:8000,endMs:9000});
+  const out=await service.getCrossMarketData({snapshotId:snap.snapshotId,symbols:['BTCUSDT'],mode:'history',timeframe:'1h',startMs:28800000,endMs:36000000});
   assert.equal(out.rows[0].bybitPerpPrice,101);
   assert.equal(out.coverage.BTCUSDT.binanceSpot.state,'UNAVAILABLE');
   assert.equal(out.coverage.BTCUSDT.binanceSpot.reason,'binance_down');

@@ -5,18 +5,21 @@ export function createSnapshotService({ snapshotStore, sourceHealth, captureUniv
   const now = () => typeof clock.now === 'function' ? clock.now() : Date.now();
 
   async function prepareSnapshot() {
+    const captureStartedAt = now();
+    const captured = await captureUniverse(captureStartedAt);
     const dataCutoff = now();
-    const captured = await captureUniverse(dataCutoff);
     const universe = Array.isArray(captured) ? captured : (captured?.universe ?? []);
     const extras = Array.isArray(captured) || !captured || typeof captured !== 'object'
       ? {}
       : Object.fromEntries(Object.entries(captured).filter(([key]) => key !== 'universe'));
     const sourceHealthSnapshot = sourceHealth.snapshot();
-    const stored = snapshotStore.create({ dataCutoff, universe, ...extras, sourceHealth: sourceHealthSnapshot });
+    const stored = snapshotStore.create({ dataCutoff, captureStartedAt, universe, ...extras, sourceHealth: sourceHealthSnapshot });
     return {
       snapshotId: stored.snapshotId,
       createdAt: stored.createdAt,
       dataCutoff: stored.dataCutoff,
+      captureStartedAt,
+      captureCompletedAt: dataCutoff,
       universeCount: Array.isArray(universe) ? universe.length : 0,
       sourceHealth: sourceHealthSnapshot,
       expiresAt: stored.expiresAt

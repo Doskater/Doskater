@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createSnapshotStore } from '../snapshot-store.js';
 import { createMarketHistoryService } from '../services/market-history-service.js';
 
-function storeWithSnapshot(cutoff = 10_000) {
+function storeWithSnapshot(cutoff = 36_000_000) {
   const clock = { now: () => cutoff };
   const store = createSnapshotStore({ clock });
   const snap = store.create({ dataCutoff: cutoff, universe: [{ symbol:'BTCUSDT' }, { symbol:'ETHUSDT' }] });
@@ -11,18 +11,18 @@ function storeWithSnapshot(cutoff = 10_000) {
 }
 
 test('caps end at snapshot cutoff, sorts ascending, removes duplicate boundary candles, and returns selected fields', async () => {
-  const { store, snap } = storeWithSnapshot(10_000);
+  const { store, snap } = storeWithSnapshot(36_000_000);
   const calls = [];
   const bybit = {
     async getKlines({ symbol, endMs }) {
       calls.push({ symbol, endMs });
-      if (endMs >= 10_000) return [
-        ['9000','9','10','8','9.5','90','900'],
-        ['8000','8','9','7','8.5','80','800']
+      if (endMs >= 36_000_000) return [
+        ['32400000','9','10','8','9.5','90','900'],
+        ['28800000','8','9','7','8.5','80','800']
       ];
-      if (endMs >= 7999) return [
-        ['8000','8','9','7','8.5','80','800'],
-        ['7000','7','8','6','7.5','70','700']
+      if (endMs >= 28799999) return [
+        ['28800000','8','9','7','8.5','80','800'],
+        ['25200000','7','8','6','7.5','70','700']
       ];
       return [];
     }
@@ -30,16 +30,16 @@ test('caps end at snapshot cutoff, sorts ascending, removes duplicate boundary c
   const service = createMarketHistoryService({ bybit, snapshotStore:store });
   const out = await service.getHistoricalMarketData({
     snapshotId:snap.snapshotId,
-    symbols:['BTCUSDT'], timeframe:'1h', startMs:7000, endMs:50_000,
+    symbols:['BTCUSDT'], timeframe:'1h', startMs:25200000, endMs:180_000_000,
     fields:['timestamp','close','volume'], maxRows:100
   });
   assert.deepEqual(out.rows, [
-    { symbol:'BTCUSDT', timestamp:7000, close:7.5, volume:70 },
-    { symbol:'BTCUSDT', timestamp:8000, close:8.5, volume:80 },
-    { symbol:'BTCUSDT', timestamp:9000, close:9.5, volume:90 }
+    { symbol:'BTCUSDT', timestamp:25200000, close:7.5, volume:70 },
+    { symbol:'BTCUSDT', timestamp:28800000, close:8.5, volume:80 },
+    { symbol:'BTCUSDT', timestamp:32400000, close:9.5, volume:90 }
   ]);
-  assert.equal(calls[0].endMs, 10_000);
-  assert.equal(out.dataCutoff, 10_000);
+  assert.equal(calls[0].endMs, 36_000_000);
+  assert.equal(out.dataCutoff, 36_000_000);
 });
 
 test('large matrix paginates deterministically with no gaps or duplicates', async () => {

@@ -53,7 +53,9 @@ export function createBybitFeed({
     }
     const state=books.get(symbol);
     if(!state){ invalidate(symbol,'delta_without_snapshot',ts,seq); return; }
-    if(Number.isFinite(state.u)&&Number.isFinite(updateId)&&updateId!==state.u+1){ invalidate(symbol,'sequence_gap',ts,seq); return; }
+    // Bybit publishes batched deltas; update IDs need not be consecutive.
+    if(Number.isFinite(state.u)&&Number.isFinite(updateId)&&updateId<=state.u) return;
+    if(Number.isFinite(state.seq)&&Number.isFinite(seq)&&seq<state.seq) return;
     apply(state.bids,data.b); apply(state.asks,data.a); state.u=updateId; state.seq=seq; emitBook(symbol,state,ts);
   }
 

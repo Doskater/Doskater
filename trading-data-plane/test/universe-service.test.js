@@ -87,3 +87,8 @@ test('captureBundle stores neutral quote maps for later snapshot-mode cross-mark
   assert.equal(bundle.crossQuotes.binanceSpot.BTCUSDT.bidPrice, 99.5);
   assert.equal(bundle.crossQuotes.binancePerp.BTCUSDT.askSize, 7);
 });
+
+test('optional Bybit spot outage does not prevent primary linear screening',async()=>{
+ const service=createUniverseService({bybit:{async listLinearInstruments(){return [{symbol:'BTCUSDT'}];},async listSpotInstruments(){throw new Error('spot_unavailable');},async getLinearTickers(){return [{symbol:'BTCUSDT',lastPrice:'100'}];}},binance:{async getSpotExchangeInfo(){return {symbols:[]};},async getFuturesExchangeInfo(){return {symbols:[]};}}});
+ const rows=await service.capture(1234);assert.equal(rows.length,1);assert.equal(rows[0].symbol,'BTCUSDT');
+});

@@ -5,7 +5,7 @@ const DEFAULT_FRESHNESS_MS = 10_000;
 
 const normalizeSymbol = value => {
   const symbol = String(value ?? '').trim().toUpperCase();
-  if (!/^[A-Z0-9]{2,30}USDT$/.test(symbol)) throw new Error('invalid_symbol');
+  if (!/^[A-Z0-9]{1,30}USDT$/.test(symbol)) throw new Error('invalid_symbol');
   return symbol;
 };
 const finite = value => { const n=Number(value); return Number.isFinite(n)?n:null; };
@@ -89,6 +89,7 @@ export function createNeutralMicrostructureCollector({
     const healthySince=previous?.state==='healthy' && Number.isFinite(previous.healthySince) ? previous.healthySince : ts;
     coverage.set(key,{ state:'healthy', lastTs:ts, healthySince, reason:null, sequence:event.sequence ?? null });
     push(books,key,{ts,...snap});
+    sourceHealth?.record?.(`microstructure_${family.replace(':','_')}`,{ok:true,at:now()});
   }
   function onStatus(event) {
     const family=String(event.family);
@@ -178,6 +179,11 @@ export function createNeutralMicrostructureCollector({
     for(const feed of feeds) {
       const family=feed.family;
       const cov=familyCoverage(family,symbol);
+      cov.observedDurationMs=Math.min(retentionMs,cov.healthyForMs);
+      cov.fullWindowCovered=cov.state==='GOOD' && cov.observedDurationMs>=lookbackMs;
+      cov.observedFrom=now()-cov.observedDurationMs;
+      cov.observedTo=now();
+      if(cov.state==='GOOD' && !cov.fullWindowCovered){cov.state='PARTIAL';cov.reason='incomplete_window';}
       families[family]={coverage:cov,buckets:cov.state==='UNAVAILABLE'?[]:bucketsFor(family,symbol,bucketMs,lookbackMs)};
     }
     return {symbol,capturedAt:now(),families};

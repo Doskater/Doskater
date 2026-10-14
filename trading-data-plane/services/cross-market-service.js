@@ -55,7 +55,8 @@ export function createCrossMarketService({ bybit = {}, binance = {}, snapshotSto
         const ts = finite(row?.[0]); const close = finite(row?.[4]);
         if (!Number.isFinite(ts)) continue;
         oldest = Math.min(oldest, ts);
-        if (ts >= startMs && ts <= endMs) values.set(ts, close);
+        const durationMs = interval === 'D' || interval === '1d' ? 86400000 : interval.endsWith?.('h') ? Number(interval.slice(0,-1))*3600000 : Number(String(interval).replace('m',''))*60000;
+        if (ts >= startMs && ts + durationMs <= endMs) values.set(ts, close);
       }
       if (!Number.isFinite(oldest) || oldest <= startMs) break;
       const nextEnd = oldest - 1; if (nextEnd >= pageEnd) break; pageEnd = nextEnd;
@@ -74,7 +75,8 @@ export function createCrossMarketService({ bybit = {}, binance = {}, snapshotSto
         const ts = finite(row?.[0]); const close = finite(row?.[4]);
         if (!Number.isFinite(ts)) continue;
         latest = Math.max(latest, ts);
-        if (ts >= startMs && ts <= endMs) values.set(ts, close);
+        const durationMs = interval === 'D' || interval === '1d' ? 86400000 : interval.endsWith?.('h') ? Number(interval.slice(0,-1))*3600000 : Number(String(interval).replace('m',''))*60000;
+        if (ts >= startMs && ts + durationMs <= endMs) values.set(ts, close);
       }
       if (!Number.isFinite(latest) || latest >= endMs || page.length < 1000) break;
       const nextStart = latest + 1; if (nextStart <= pageStart) break; pageStart = nextStart;
@@ -96,10 +98,10 @@ export function createCrossMarketService({ bybit = {}, binance = {}, snapshotSto
         binancePerp:meta.binancePerp?{state:'UNAVAILABLE',reason:'not_loaded'}:{state:'UNAVAILABLE',reason:'market_unavailable'}
       };
       const perp = await collectBybit({ symbol, category:'linear', interval:tf.bybit, startMs, endMs });
-      series.bybitPerp = new Map(perp); symbolCoverage.bybitPerp = {state:'FULL',reason:null};
+      series.bybitPerp = new Map(perp); symbolCoverage.bybitPerp = {state:perp.length?'PARTIAL':'UNAVAILABLE',observedRows:perp.length,reason:perp.length?'time_grid_not_verified':'no_observations'};
       const optional = async (enabled, key, loader) => {
         if (!enabled) return;
-        try { series[key] = new Map(await loader()); symbolCoverage[key] = {state:'FULL',reason:null}; }
+        try { series[key] = new Map(await loader()); symbolCoverage[key] = {state:series[key].size?'PARTIAL':'UNAVAILABLE',observedRows:series[key].size,reason:series[key].size?'time_grid_not_verified':'no_observations'}; }
         catch (error) { symbolCoverage[key] = {state:'UNAVAILABLE',reason:String(error?.message ?? 'source_failure')}; }
       };
       await Promise.all([
@@ -132,6 +134,7 @@ export function createCrossMarketService({ bybit = {}, binance = {}, snapshotSto
     if (mode !== 'history') throw new Error('invalid_mode');
     const effectiveEnd = Math.min(Number.isFinite(endMs)?Number(endMs):snapshot.dataCutoff, snapshot.dataCutoff);
     const effectiveStart = Math.max(0, Number.isFinite(startMs)?Number(startMs):effectiveEnd-DEFAULT_LOOKBACK_MS);
+    if (effectiveStart > effectiveEnd) throw new Error('invalid_range');
     const query = { snapshotId:snapshot.snapshotId, symbols:uniqueSymbols, mode, timeframe, startMs:effectiveStart, endMs:effectiveEnd };
     const key = keyFor(query);
     const decoded = decodeCursor(cursor);

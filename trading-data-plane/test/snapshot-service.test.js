@@ -26,7 +26,8 @@ test('prepareSnapshot captures universe once at one cutoff and returns compact m
   });
   const result = await service.prepareSnapshot();
   assert.deepEqual(calls, [100_000]);
-  assert.equal(result.dataCutoff, 100_000);
+  assert.equal(result.captureStartedAt, 100_000);
+  assert.equal(result.dataCutoff, 105_000);
   assert.equal(result.universeCount, 2);
   assert.equal(result.createdAt, 105_000);
   assert.equal(result.expiresAt, 1_005_000);

@@ -50,7 +50,8 @@ export function createMarketHistoryService({ bybit, snapshotStore } = {}) {
         const row = normalizeKline(symbol, raw);
         if (!row) continue;
         oldest = Math.min(oldest, row.timestamp);
-        if (row.timestamp < startMs || row.timestamp > endMs) continue;
+        const durationMs = interval === 'D' ? 86400000 : Number(interval) * 60000;
+        if (row.timestamp < startMs || row.timestamp + durationMs > endMs) continue;
         dedupe.set(row.timestamp, row);
       }
       if (!Number.isFinite(oldest) || oldest <= startMs) break;

@@ -77,7 +77,7 @@ export function createDerivativesService({ bybit, snapshotStore, liquidationProv
           const ts = finite(row.timestamp);
           if (Number.isFinite(ts) && ts >= startMs && ts <= endMs) maps.oi.set(ts, finite(row.openInterest));
         }
-        coverage.openInterest = { state:'FULL', startMs, endMs, reason:null };
+        coverage.openInterest = { state:maps.oi.size ? 'PARTIAL' : 'UNAVAILABLE', startMs, endMs, observedRows:maps.oi.size, reason:maps.oi.size ? 'time_grid_not_verified' : 'no_observations' };
       } catch (error) { coverage.openInterest = { state:'UNAVAILABLE', startMs, endMs, reason:error.message }; }
     }
     if (needFunding) {
@@ -87,7 +87,7 @@ export function createDerivativesService({ bybit, snapshotStore, liquidationProv
           row => row.fundingRateTimestamp, startMs, endMs, 200
         );
         for (const row of rows) maps.funding.set(Number(row.fundingRateTimestamp), finite(row.fundingRate));
-        coverage.funding = { state:'FULL', startMs, endMs, reason:null };
+        coverage.funding = { state:maps.funding.size ? 'PARTIAL' : 'UNAVAILABLE', startMs, endMs, observedRows:maps.funding.size, reason:maps.funding.size ? 'time_grid_not_verified' : 'no_observations' };
       } catch (error) { coverage.funding = { state:'UNAVAILABLE', startMs, endMs, reason:error.message }; }
     }
     if (needMark) {
@@ -96,8 +96,8 @@ export function createDerivativesService({ bybit, snapshotStore, liquidationProv
           (pageEnd, limit) => bybit.getMarkPriceKlines({ symbol, interval:cfg.kline, startMs, endMs:pageEnd, limit }),
           row => row?.[0], startMs, endMs, 1000
         );
-        for (const row of rows) maps.mark.set(Number(row[0]), finite(row[4]));
-        coverage.markPrice = { state:'FULL', startMs, endMs, reason:null };
+        for (const row of rows) if (Number(row[0]) + (cfg.kline === 'D' ? 86400000 : Number(cfg.kline)*60000) <= endMs) maps.mark.set(Number(row[0]), finite(row[4]));
+        coverage.markPrice = { state:maps.mark.size ? 'PARTIAL' : 'UNAVAILABLE', startMs, endMs, observedRows:maps.mark.size, reason:maps.mark.size ? 'time_grid_not_verified' : 'no_observations' };
       } catch (error) { coverage.markPrice = { state:'UNAVAILABLE', startMs, endMs, reason:error.message }; }
     }
     if (needIndex) {
@@ -106,8 +106,8 @@ export function createDerivativesService({ bybit, snapshotStore, liquidationProv
           (pageEnd, limit) => bybit.getIndexPriceKlines({ symbol, interval:cfg.kline, startMs, endMs:pageEnd, limit }),
           row => row?.[0], startMs, endMs, 1000
         );
-        for (const row of rows) maps.index.set(Number(row[0]), finite(row[4]));
-        coverage.indexPrice = { state:'FULL', startMs, endMs, reason:null };
+        for (const row of rows) if (Number(row[0]) + (cfg.kline === 'D' ? 86400000 : Number(cfg.kline)*60000) <= endMs) maps.index.set(Number(row[0]), finite(row[4]));
+        coverage.indexPrice = { state:maps.index.size ? 'PARTIAL' : 'UNAVAILABLE', startMs, endMs, observedRows:maps.index.size, reason:maps.index.size ? 'time_grid_not_verified' : 'no_observations' };
       } catch (error) { coverage.indexPrice = { state:'UNAVAILABLE', startMs, endMs, reason:error.message }; }
     }
     if (needLiq) {
@@ -158,6 +158,7 @@ export function createDerivativesService({ bybit, snapshotStore, liquidationProv
     for (const symbol of uniqueSymbols) if (!universe.has(symbol)) throw new Error(`symbol_not_in_snapshot:${symbol}`);
     const effectiveEnd = Math.min(Number.isFinite(endMs) ? Number(endMs) : snapshot.dataCutoff, snapshot.dataCutoff);
     const effectiveStart = Math.max(0, Number.isFinite(startMs) ? Number(startMs) : effectiveEnd - DEFAULT_LOOKBACK_MS);
+    if (effectiveStart > effectiveEnd) throw new Error('invalid_range');
     const query = { snapshotId:snapshot.snapshotId, symbols:uniqueSymbols, resolution, startMs:effectiveStart, endMs:effectiveEnd, fields:selected };
     const key = keyFor(query);
     const decoded = decodeCursor(cursor);

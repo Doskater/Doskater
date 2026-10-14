@@ -8,7 +8,7 @@ const readTool = (name, description, properties = {}, required = []) => ({
 const snapshotId = { type: 'string', minLength: 1, maxLength: 128 };
 const symbols = {
   type: 'array', minItems: 1, maxItems: 50, uniqueItems: true,
-  items: { type: 'string', pattern: '^[A-Za-z0-9]{2,30}USDT$' }
+  items: { type: 'string', pattern: '^[A-Za-z0-9]{1,30}USDT$' }
 };
 const cursor = { type: 'string', minLength: 1, maxLength: 4096 };
 

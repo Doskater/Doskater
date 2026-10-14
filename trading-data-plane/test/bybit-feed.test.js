@@ -32,7 +32,7 @@ test('Bybit linear feed rebuilds snapshot then applies deltas', async () => {
   assert.equal(books.at(-1).sequence,21);
 });
 
-test('Bybit feed marks orderbook unavailable on update-id gap until next snapshot', async () => {
+test('Bybit feed accepts increasing non-contiguous update ids and resets on snapshot', async () => {
   const {factory,sockets}=socketHarness();
   const feed=createBybitFeed({market:'linear',websocketFactory:factory,reconnect:false});
   const books=[];
@@ -40,8 +40,8 @@ test('Bybit feed marks orderbook unavailable on update-id gap until next snapsho
   feed.start(); sockets[0].open(); await feed.ensureSymbol('BTCUSDT');
   sockets[0].message({topic:'orderbook.50.BTCUSDT',type:'snapshot',ts:1000,data:{s:'BTCUSDT',b:[['99','1']],a:[['101','1']],u:5,seq:10}});
   sockets[0].message({topic:'orderbook.50.BTCUSDT',type:'delta',ts:1001,data:{s:'BTCUSDT',b:[['99','2']],a:[],u:7,seq:12}});
-  assert.equal(books.at(-1).state,'unhealthy');
-  assert.equal(books.at(-1).reason,'sequence_gap');
+  assert.equal(books.at(-1).state,'healthy');
+  assert.deepEqual(books.at(-1).bids,[[99,2]]);
   sockets[0].message({topic:'orderbook.50.BTCUSDT',type:'snapshot',ts:1002,data:{s:'BTCUSDT',b:[['100','1']],a:[['102','1']],u:1,seq:13}});
   assert.equal(books.at(-1).state,'healthy');
   assert.deepEqual(books.at(-1).bids,[[100,1]]);

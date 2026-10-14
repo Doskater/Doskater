@@ -69,3 +69,19 @@ test('proxy rate-limits upstream tool calls per client', async t => {
   assert.equal(third.error.message,'rate_limit_exceeded');
   assert.equal(calls,2);
 });
+
+test('proxy retries transient HTML cold-start responses and returns the actual tool result',async t=>{
+ let calls=0;
+ const server=createProxyServer({upstreamUrl:'https://data.example/mcp',token:'secret',retryDelayMs:0,fetchImpl:async()=>++calls===1?new Response('<html>starting</html>',{status:503}):new Response(JSON.stringify({jsonrpc:'2.0',id:1,result:{structuredContent:{state:'GOOD'}}}),{status:200})});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const out=await rpc(`http://127.0.0.1:${server.address().port}`,'tools/call',{name:'source_health',arguments:{}});
+ assert.equal(out.result?.structuredContent.state,'GOOD');assert.equal(calls,2);
+});
+
+test('proxy does not duplicate a timed-out in-flight history computation',async t=>{
+ let calls=0;
+ const server=createProxyServer({upstreamUrl:'https://data.example/mcp',token:'secret',retryDelayMs:0,logger:{warn(){}},fetchImpl:async()=>{calls++;throw new DOMException('deadline','TimeoutError');}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());
+ const out=await rpc(`http://127.0.0.1:${server.address().port}`,'tools/call',{name:'historical_market_data',arguments:{}});
+ assert.equal(out.error.message,'upstream_timeout');assert.equal(calls,1);
+});

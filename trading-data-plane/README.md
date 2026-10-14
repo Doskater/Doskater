@@ -63,3 +63,18 @@ The public ChatGPT proxy should use:
 - `UPSTREAM_BEARER_TOKEN=<same data-plane access token>`
 
 Do not reuse the Bybit Demo Execution token.
+
+## Independent audit corrections (2026-10-14)
+
+The data plane remains limited to the same seven neutral, read-only tools. The analyst performs screening, rankings, strategy comparison and decisions in its own computation environment.
+
+- History excludes candles whose close would fall after the requested cutoff. Timestamp means candle **open**, while OI/funding use observation/settlement time; consumers must align causally.
+- Snapshot quotes are captured over `captureStartedAt..captureCompletedAt`, not atomically across venues. `dataCutoff` is capture completion.
+- Funding intervals and previous ticker prices are exposed as raw inputs. Single-character base symbols are supported.
+- Successful history requests do not imply complete coverage. Derivatives and cross-market coverage report observed row counts with PARTIAL/UNAVAILABLE until the consumer verifies the grid.
+- Bybit order-book update IDs are monotonic but are not assumed consecutive. Repeated/older deltas are ignored; snapshots reset the book.
+- Live microstructure states its actually observed duration and `fullWindowCovered`. New subscriptions may return PARTIAL. The last bucket is incomplete until its interval ends.
+- Transient HTTP cold-start responses are retried by the proxy; timeouts are not replayed. Analysts should bound history requests to <=10 symbols and explicit windows.
+- Legacy App skills must route general market-analysis requests to Trading Analyst Data Plane; they must never fall back to Pipeline v2.9.
+
+Operational limits: Render free services can sleep and lose in-memory snapshots. A proxy retry improves transient handling but cannot guarantee always-on availability. Historical liquidation storage is not configured; Binance spot access may be unavailable from the deployment region/IP. Report these gaps explicitly. Never manufacture missing data or interpret it as zero.

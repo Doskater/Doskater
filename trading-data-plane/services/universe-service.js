@@ -36,7 +36,7 @@ export function createUniverseService({ bybit, binance, snapshotStore } = {}) {
   async function captureBundle(_dataCutoff) {
     const [instruments, spotInstruments, tickers, spotTickers, binanceSpotInfo, binanceFuturesInfo, binanceSpotBooks, binanceFuturesBooks] = await Promise.all([
       bybit.listLinearInstruments(),
-      bybit.listSpotInstruments(),
+      bybit.listSpotInstruments().catch(() => []),
       bybit.getLinearTickers(),
       typeof bybit.getSpotTickers === 'function' ? bybit.getSpotTickers().catch(() => []) : [],
       binance.getSpotExchangeInfo().catch(() => ({ symbols: [] })),
@@ -54,6 +54,11 @@ export function createUniverseService({ bybit, binance, snapshotStore } = {}) {
       return {
         symbol: instrument.symbol,
         launchTime: finite(instrument.launchTime),
+        fundingIntervalMinutes: finite(instrument.fundingInterval),
+        prevPrice24h: finite(ticker.prevPrice24h),
+        prevPrice1h: finite(ticker.prevPrice1h),
+        highPrice24h: finite(ticker.highPrice24h),
+        lowPrice24h: finite(ticker.lowPrice24h),
         lastPrice: finite(ticker.lastPrice),
         turnover24h: finite(ticker.turnover24h),
         volume24h: finite(ticker.volume24h),

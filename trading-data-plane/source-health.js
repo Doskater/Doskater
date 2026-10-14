@@ -29,7 +29,7 @@ export function createSourceHealth({ clock = Date, freshMs = 30_000 } = {}) {
     for (const [source, row] of rows) {
       let state = 'UNAVAILABLE';
       if (Number.isFinite(row.lastSuccessAt)) {
-        state = current - row.lastSuccessAt <= freshMs ? 'GOOD' : 'DEGRADED';
+        state = !row.reason && current - row.lastSuccessAt <= freshMs ? 'GOOD' : 'DEGRADED';
       }
       out[source] = {
         state,

@@ -1,13 +1,14 @@
 {
   "name": "trading-data-chatgpt-proxy",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "scripts": {
-    "start": "node public-proxy.js",
-    "check": "node --check public-proxy.js"
-  },
   "engines": {
     "node": ">=20"
+  },
+  "scripts": {
+    "start": "node public-proxy.js",
+    "test": "node --test test/*.test.js",
+    "check": "node --check public-proxy.js"
   }
 }

@@ -1,0 +1,1 @@
+{"name":"liquidation-exhaustion","enables":["derivatives","liquidations","microstructure"],"marketFacts":{"symbol":"ENAUSDT","priceSeries":[0.5,0.43,0.44],"openInterest":[800000,590000],"liquidationSellNotional":[150000,50000],"marketSellNotional":[180000,60000],"bidDepth10bps":[20000,95000]}}

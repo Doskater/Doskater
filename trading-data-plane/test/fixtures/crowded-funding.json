@@ -1,0 +1,1 @@
+{"name":"crowded-funding","enables":["derivatives","carry"],"marketFacts":{"symbol":"ETHUSDT","price":2500,"openInterest":[1000000,1300000],"fundingRate":[0.0001,0.0009],"markPrice":2504,"indexPrice":2500,"spotPrice":2499}}

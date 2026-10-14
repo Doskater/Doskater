@@ -1,0 +1,1 @@
+{"name":"liquidation-continuation","enables":["derivatives","liquidations","microstructure"],"marketFacts":{"symbol":"SUIUSDT","priceSeries":[1.1,1.05,0.98],"openInterest":[500000,420000],"liquidationSellNotional":[10000,90000],"marketSellNotional":[20000,130000],"bidDepth10bps":[90000,30000]}}

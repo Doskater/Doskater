@@ -43,3 +43,16 @@ I help small businesses automate repetitive workflows, process data, monitor web
 ## Trading pipeline policy
 
 The canonical operating prompt for full trading-pipeline runs is [`PIPELINE_PROMPT.md`](./PIPELINE_PROMPT.md). It explicitly pre-authorizes automatic watcher-level synchronization after a full run while preserving the hard boundary that order/leverage/protection writes require an explicit user instruction.
+
+## ChatGPT Cloud Trading Analyst
+
+This repository also contains a read-only cloud market-data plane for a ChatGPT-driven trading analysis workflow.
+
+Core rule: **ChatGPT is the analytical/computational engine; the cloud service is data infrastructure only.**
+
+See:
+- `docs/superpowers/specs/2026-10-14-chatgpt-cloud-trading-analyst-design.md`
+- `docs/superpowers/plans/2026-10-14-chatgpt-cloud-trading-analyst-implementation-plan.md`
+- `trading-data-plane/README.md`
+
+The public proxy in `public-proxy.js` exposes only the seven read-only Data Plane tools. Trade execution remains outside this service and requires a separate explicit Bybit Demo Execution action.

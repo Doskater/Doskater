@@ -1,0 +1,1 @@
+{"name":"negative-net-carry","enables":["carry","derivatives"],"marketFacts":{"symbol":"BTCUSDT","fundingRate":0.0002,"spotPrice":70000,"perpPrice":70008,"makerFeeBps":2,"takerFeeBps":5,"spreadBps":4,"estimatedSlippageBps":6}}

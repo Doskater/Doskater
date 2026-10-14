@@ -1,0 +1,1 @@
+{"name":"no-valid-edge","enables":["no_edge","momentum","directional","stat_arb","carry"],"marketFacts":{"symbols":["BTCUSDT","ETHUSDT"],"returns":{"BTCUSDT":{"h24":0.001,"d7":0.002},"ETHUSDT":{"h24":-0.001,"d7":0.001}},"fundingRate":{"BTCUSDT":0.00001,"ETHUSDT":0.00001},"spreadBps":{"BTCUSDT":8,"ETHUSDT":8}}}
